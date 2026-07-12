@@ -1,0 +1,16 @@
+# Test and build output
+TestResults.xml
+coverage.xml
+*.zip
+
+# Local scratch
+scratch/
+*.local.ps1
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
