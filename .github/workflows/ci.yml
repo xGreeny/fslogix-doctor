@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path ./FSLogixDoctor -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize | Out-String -Width 200 | Write-Host
+          $failures = @($results | Where-Object Severity -in @('ParseError', 'Error', 'Warning'))
+          if ($failures.Count -gt 0) {
+            throw "PSScriptAnalyzer reported $($failures.Count) finding(s)."
+          }
+
+  test:
+    name: Pester (${{ matrix.name }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: PowerShell 7
+            shell: pwsh
+          - name: Windows PowerShell 5.1
+            shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Pester tests
+        shell: ${{ matrix.shell }}
+        run: ./tools/Invoke-Tests.ps1 -CI
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ strategy.job-index }}
+          path: TestResults.xml
