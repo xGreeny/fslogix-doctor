@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #1f2933; }
+  header { background: #102a43; color: #fff; padding: 24px 32px; }
+  header h1 { margin: 0 0 4px 0; font-size: 22px; }
+  header .meta { color: #9fb3c8; font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 32px 48px; }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; }
+  .tile { flex: 1 1 120px; background: #fff; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(16,42,67,.12); border-top: 4px solid #829ab1; }
+  .tile .num { font-size: 28px; font-weight: 600; }
+  .tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #627d98; }
+  .tile.critical { border-top-color: #c62828; } .tile.critical .num { color: #c62828; }
+  .tile.warning { border-top-color: #ef6c00; } .tile.warning .num { color: #ef6c00; }
+  .tile.info { border-top-color: #0277bd; } .tile.info .num { color: #0277bd; }
+  .tile.pass { border-top-color: #2e7d32; } .tile.pass .num { color: #2e7d32; }
+  .verdict { display: inline-block; margin: 12px 0 4px; padding: 6px 14px; border-radius: 999px; font-weight: 600; font-size: 14px; }
+  .verdict.pass { background: #e8f5e9; color: #2e7d32; }
+  .verdict.warning { background: #fff3e0; color: #ef6c00; }
+  .verdict.critical { background: #ffebee; color: #c62828; }
+  h2 { margin: 28px 0 10px; font-size: 17px; color: #102a43; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(16,42,67,.12); }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #627d98; padding: 10px 14px; border-bottom: 2px solid #d9e2ec; }
+  td { padding: 10px 14px; border-bottom: 1px solid #e4ebf1; vertical-align: top; font-size: 14px; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.critical { background: #ffebee; color: #c62828; }
+  .badge.warning { background: #fff3e0; color: #ef6c00; }
+  .badge.info { background: #e1f5fe; color: #0277bd; }
+  .badge.pass { background: #e8f5e9; color: #2e7d32; }
+  .msg { margin-bottom: 4px; }
+  .evidence { color: #627d98; font-size: 13px; margin-bottom: 4px; }
+  .fix { font-size: 13px; color: #334e68; }
+  .link { font-size: 13px; } .link a { color: #0277bd; }
+  footer { text-align: center; color: #829ab1; font-size: 12px; padding: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</h1>
+  <div class="meta">Generated 2026-07-12 21:28 by FSLogixDoctor v0.1.0 &middot; read-only diagnostics &middot; no telemetry</div>
+</header>
+<main>
+  <div class="verdict critical">Critical issues found</div>
+  <div class="tiles">
+    <div class="tile critical"><div class="num">3</div><div class="label">Critical</div></div>
+    <div class="tile warning"><div class="num">3</div><div class="label">Warnings</div></div>
+    <div class="tile info"><div class="num">2</div><div class="label">Info</div></div>
+    <div class="tile pass"><div class="num">4</div><div class="label">Passed</div></div>
+  </div>
+<h2>Configuration</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Antivirus exclusions</td><td>LAB-SH-01</td><td><div class="msg">Profile share paths are not in the Microsoft Defender path exclusions; on-access scanning of container disks degrades logon performance and can cause locks.</div><div class="evidence">Not excluded: \\lab-fs01\fslogix$</div><div class="fix">Fix: Add the Microsoft-recommended FSLogix exclusions.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/overview-prerequisites#configure-antivirus-file-and-folder-exclusions">Documentation</a></div></td></tr>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Failure masking</td><td>LAB-SH-01</td><td><div class="msg">PreventLoginWithFailure=0 and PreventLoginWithTempProfile=0: when the container attach fails, users silently work in a temp profile and changes are lost at logoff.</div><div class="evidence">Correlate with session Reason=7 (temp profile) to find affected users.</div><div class="fix">Fix: Set both to 1 in production so attach failures surface immediately instead of costing user data.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
+<tr class="info"><td><span class="badge info">Info</span></td><td>Log retention</td><td>LAB-SH-01</td><td><div class="msg">LogFileKeepingPeriod=2 days (default 2) - often too short to investigate incidents reported after a weekend.</div><div class="fix">Fix: Raise to at least 7-14 days (maximum 180).</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
+<tr class="pass"><td><span class="badge pass">Pass</span></td><td>Profiles enabled</td><td>LAB-SH-01</td><td><div class="msg">FSLogix profile containers are enabled.</div></td></tr>
+<tr class="pass"><td><span class="badge pass">Pass</span></td><td>VHDLocations reachable</td><td>LAB-SH-01</td><td><div class="msg">Profile location &#39;\\lab-fs01\fslogix$&#39; is reachable.</div></td></tr>
+</tbody></table>
+<h2>Environment</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="info"><td><span class="badge info">Info</span></td><td>FSLogix version</td><td>LAB-SH-01</td><td><div class="msg">Installed FSLogix version: 2.9.8884.27471.</div><div class="fix">Fix: Compare against the current release and known issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes</div></td></tr>
+<tr class="pass"><td><span class="badge pass">Pass</span></td><td>FSLogix service running</td><td>LAB-SH-01</td><td><div class="msg">The FSLogix service (frxsvc) is running.</div><div class="evidence">Version: 2.9.8884.27471</div></td></tr>
+</tbody></table>
+<h2>EventLog</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Event 26</td><td>LAB-SH-01</td><td><div class="msg">4x event 26: container attach failure reported by the FSLogix Apps service.</div><div class="evidence">Last seen 2026-07-12 07:41. Sample: Failed to attach VHD for user LAB\mmuster</div><div class="fix">Fix: Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</div></td></tr>
+</tbody></table>
+<h2>LogFile</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Log errors (0x00000020)</td><td>LAB-SH-01</td><td><div class="msg">7x in the last 24h: [0x00000020] ERROR_SHARING_VIOLATION - the container is already open elsewhere.</div><div class="evidence">Sample: Failed to open virtual disk (The process cannot access the file because it is being used by another process.) (C:\ProgramData\FSLogix\Logs\Profile\Profile-20260712.log:214)</div><div class="fix">Fix: Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</div></td></tr>
+</tbody></table>
+<h2>ProfileStore</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Orphaned containers</td><td>\\lab-fs01\fslogix$</td><td><div class="msg">3 container disks belong to deleted or disabled accounts - 41.5 GB reclaimable.</div><div class="evidence">Largest: Profile_tmuellerx.vhdx (18.2 GB, last used 214 days ago).</div><div class="fix">Fix: Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</div></td></tr>
+</tbody></table>
+<h2>SessionState</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Session attach state</td><td>LAB\mmuster</td><td><div class="msg">Last attach did not complete cleanly: Status=12 (Can&#39;t attach to virtual disk), Reason=0 (The container is attached).</div><div class="evidence">Error: 32 - The profile disk is open in another session or process (sharing violation): the classic &quot;profile already in use&quot;.</div><div class="fix">Fix: Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</div></td></tr>
+<tr class="pass"><td><span class="badge pass">Pass</span></td><td>Session attach state</td><td>LAB\jdoe</td><td><div class="msg">Attached cleanly: Status=0 (Success), Reason=0 (The container is attached).</div></td></tr>
+</tbody></table>
+
+</main>
+<footer>FSLogixDoctor &middot; https://github.com/xGreeny/fslogix-doctor</footer>
+</body>
+</html>
