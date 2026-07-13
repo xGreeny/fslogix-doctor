@@ -32,7 +32,7 @@ InDatabase : True
 ## Quick start
 
 ```powershell
-# From source (PowerShell Gallery release planned for v0.1.0):
+# From source (PowerShell Gallery release planned for v1.0.0):
 git clone https://github.com/xGreeny/fslogix-doctor.git
 Import-Module .\fslogix-doctor\FSLogixDoctor\FSLogixDoctor.psd1
 
@@ -100,7 +100,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 ## Roadmap
 
-- [ ] v0.1.0 on the PowerShell Gallery
+- [ ] v1.0.0 on the PowerShell Gallery
 - [ ] `Get-FslProfileReport`: parallel scanning for multi-TB shares
 - [ ] Optional `-Fix` companions (explicit, `-WhatIf`-first) for safe cleanups
 - [ ] Cloud Cache (CCD) health checks
