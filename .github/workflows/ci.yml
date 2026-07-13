@@ -37,8 +37,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Pester tests
-        shell: ${{ matrix.shell }}
+      # Expressions are not allowed in a step's `shell` key, so the two
+      # PowerShell editions get their own conditional steps.
+      - name: Run Pester tests (PowerShell 7)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: ./tools/Invoke-Tests.ps1 -CI
+
+      - name: Run Pester tests (Windows PowerShell 5.1)
+        if: matrix.shell == 'powershell'
+        shell: powershell
         run: ./tools/Invoke-Tests.ps1 -CI
 
       - name: Publish test results
