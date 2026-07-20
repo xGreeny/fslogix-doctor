@@ -1,6 +1,8 @@
 # fslogix-doctor
 
 [![CI](https://github.com/xGreeny/fslogix-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/xGreeny/fslogix-doctor/actions/workflows/ci.yml)
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/FSLogixDoctor.svg?label=PSGallery)](https://www.powershellgallery.com/packages/FSLogixDoctor)
+[![PSGallery downloads](https://img.shields.io/powershellgallery/dt/FSLogixDoctor.svg)](https://www.powershellgallery.com/packages/FSLogixDoctor)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-blue.svg)](#requirements)
 
@@ -32,7 +34,10 @@ InDatabase : True
 ## Quick start
 
 ```powershell
-# From source (PowerShell Gallery release planned for v1.0.0):
+# From the PowerShell Gallery:
+Install-Module -Name FSLogixDoctor -Scope CurrentUser
+
+# Or from source:
 git clone https://github.com/xGreeny/fslogix-doctor.git
 Import-Module .\fslogix-doctor\FSLogixDoctor\FSLogixDoctor.psd1
 
@@ -100,7 +105,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 ## Roadmap
 
-- [ ] v1.0.0 on the PowerShell Gallery
+- [x] On the [PowerShell Gallery](https://www.powershellgallery.com/packages/FSLogixDoctor) (since v1.2.0)
 - [ ] `Get-FslProfileReport`: parallel scanning for multi-TB shares
 - [ ] Optional `-Fix` companions (explicit, `-WhatIf`-first) for safe cleanups
 - [ ] Cloud Cache (CCD) health checks
