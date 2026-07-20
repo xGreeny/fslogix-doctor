@@ -15,8 +15,10 @@
             Reason  = 'Internal ETW/tracing correlation call of the FSLogix service; cosmetic and seen in bulk on healthy hosts where every session attaches cleanly.'
         }
         @{
-            Pattern = '*Import group policy DataStore key failed*'
-            Reason  = 'frxsvc imports GPO-based settings from the DataStore registry key; the import fails harmlessly on hosts where FSLogix is configured directly via HKLM\SOFTWARE\FSLogix instead of the ADMX/GPO DataStore.'
+            # Real-world logs show the same failure once per key (DataStore,
+            # Status, Sid, ...) per import cycle, hence the inner wildcard.
+            Pattern = '*Import group policy * key failed*'
+            Reason  = 'frxsvc imports GPO-based settings from per-key registry state (DataStore, Status, Sid, ...); the import fails harmlessly on hosts where FSLogix is configured directly via HKLM\SOFTWARE\FSLogix instead of the ADMX/GPO DataStore.'
         }
         @{
             Pattern = '*Failed to get computer''s group SIDs*'

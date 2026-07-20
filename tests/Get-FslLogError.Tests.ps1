@@ -84,15 +84,20 @@ Describe 'Get-FslLogError' {
             @(
                 '[08:00:01.123][tid:00001348.00001c9c][ERROR:00000057]      Failed to query activity id for session 4 (Falscher Parameter.)'
                 '[08:00:02.456][tid:00001348.00001c9c][ERROR:00000005]      Import group policy DataStore key failed (Zugriff verweigert)'
+                '[08:00:02.700][tid:00001348.00001c9c][ERROR:00000005]      Import group policy Status key failed (Zugriff verweigert)'
                 '[08:00:03.789][tid:00001348.00001c9c][ERROR:00000005]      Failed to attach VHD (Access is denied.)'
             ) | Set-Content -Path (Join-Path $script:noiseRoot 'Profile\Profile-20260719.log')
         }
 
         It 'flags known noise messages as Benign regardless of localized error text' {
             $entries = @(Get-FslLogError -Path $script:noiseRoot -After $script:longAgo)
-            @($entries | Where-Object Benign).Count | Should -Be 2
+            @($entries | Where-Object Benign).Count | Should -Be 3
             ($entries | Where-Object Message -like 'Failed to query activity id*').Benign | Should -BeTrue
-            ($entries | Where-Object Message -like 'Import group policy*').Benign | Should -BeTrue
+            # The GPO import fails once per key (DataStore, Status, Sid, ...);
+            # every variant must classify as noise, not just DataStore.
+            $gpo = @($entries | Where-Object Message -like 'Import group policy*')
+            $gpo.Count | Should -Be 2
+            $gpo | ForEach-Object { $_.Benign | Should -BeTrue }
         }
 
         It 'leaves real errors unflagged even when they share the error code' {

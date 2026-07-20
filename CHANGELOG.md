@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-20
+
+### Fixed
+
+- The GPO-import noise pattern only matched the DataStore key, but real-world
+  logs show the same harmless failure once per imported key (Status, Sid, ...)
+  per import cycle. The pattern now covers `Import group policy * key failed`,
+  so all variants classify as known-benign noise instead of masquerading as
+  ACL problems under 0x00000005 'Access is denied'.
+
 ## [1.1.0] - 2026-07-20
 
 ### Added
