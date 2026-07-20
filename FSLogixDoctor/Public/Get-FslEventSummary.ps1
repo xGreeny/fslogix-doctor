@@ -117,9 +117,15 @@ function Get-FslEventSummary {
             $curatedSeverity = $null
             if ($known -and $known.ContainsKey('Severity')) { $curatedSeverity = [string]$known.Severity }
 
+            # Record which channel(s) the bucket came from - the same ID can
+            # exist in Operational and Admin, and follow-up queries need to
+            # know where to look.
+            $channelLabel = (@($sorted | ForEach-Object { [string]$_.LogName } | Where-Object { $_ } | Select-Object -Unique) -join ', ')
+
             [pscustomobject]@{
                 PSTypeName      = 'FSLogixDoctor.EventSummary'
                 ComputerName    = $computer
+                Channel         = $channelLabel
                 EventId         = [int]$group.Name
                 Count           = $group.Count
                 BenignCount     = $benignCount

@@ -95,9 +95,17 @@ function Invoke-FslDiagnostic {
             else {
                 Write-Verbose ("Fleet: running remotely on {0}..." -f $computer)
                 try {
-                    $hostFindings = @(Invoke-Command -ComputerName $computer -ErrorAction Stop -ScriptBlock {
+                    $remoteFindings = @(Invoke-Command -ComputerName $computer -ErrorAction Stop -ScriptBlock {
                             Import-Module FSLogixDoctor -ErrorAction Stop
                             Invoke-FslDiagnostic -Hours $using:Hours -IncludeWarnings:$using:IncludeWarnings
+                        })
+                    # Rebuild as clean local finding objects - Invoke-Command
+                    # tacks PSComputerName/RunspaceId metadata onto everything
+                    # it returns, which pollutes the merged output.
+                    $hostFindings = @($remoteFindings | ForEach-Object {
+                            New-FslFinding -Category ([string]$_.Category) -Check ([string]$_.Check) -Severity ([string]$_.Severity) `
+                                -Target ([string]$_.Target) -Message ([string]$_.Message) -Evidence ([string]$_.Evidence) `
+                                -Recommendation ([string]$_.Recommendation) -HelpUri ([string]$_.HelpUri)
                         })
                 }
                 catch {

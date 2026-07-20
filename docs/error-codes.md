@@ -1135,18 +1135,20 @@ the authoritative per-version list with:
 
 *Source:* [https://learn.microsoft.com/en-us/fslogix/concepts-container-types](https://learn.microsoft.com/en-us/fslogix/concepts-container-types) (community-observed)
 
-### Event 33 - VHD_ATTACH_FAILURE (community claim; unconfirmed)
+### Event 33 - VHD_FREE_SPACE_LOW (unofficial label; field-verified message)
 
-**Meaning:** Claimed by a Microsoft Q&A community answer to indicate a VHD attach failure in Microsoft-FSLogix-Apps/Operational, possibly with 'locked' in the message when the disk is still in use elsewhere. NOT found in any official Microsoft documentation and not corroborated by a second independent source - low confidence; include in a diagnostic tool only as 'possible attach failure, verify message text'.
+**Meaning:** Warning event in Microsoft-FSLogix-Apps/Admin, field-verified 2026-07-20: 'The user vhd(x) (VHDPath: \<path\>) has less than 200 MB free space left and must be expanded, Logins will fail if the vhd(x) gets too full.' The volume inside the user's container is nearly full - act before sign-ins start failing. NOTE: an older Microsoft Q&A community answer instead claims ID 33 indicates a VHD attach failure; that reading is unconfirmed - trust the message text.
 
 **Likely causes:**
-- Profile VHD(x) still locked/attached by another session host (per the unconfirmed community claim)
+- Container has grown to its configured maximum (SizeInMBs) and the volume inside is nearly full
+- Profile bloat: orphaned OST caches, OneDrive cache, temp folders inside the container
 
 **Fixes / next steps:**
-- Treat as unverified: read the actual event message and the Profile\_\*.log around the same timestamp
-- Check for file locks on the container with Get-SmbOpenFile on the file server and close stale handles/sessions
+- Free space inside the profile first: Remove-FslOrphanedOst for orphaned Outlook caches; clear OneDrive cache and temp data
+- If cleanup is not enough: with the user signed out, raise the VHDX maximum (Resize-VHD, then extend the partition inside) - SizeInMBs only affects newly created containers
+- Get the fleet overview with Get-FslProfileReport (size and percent-of-maximum per container) to catch further users before they hit the wall
 
-*Source:* [https://learn.microsoft.com/en-us/answers/questions/5878138/multiple-sessions-for-users-in-avd-fslogix-is-unab](https://learn.microsoft.com/en-us/answers/questions/5878138/multiple-sessions-for-users-in-avd-fslogix-is-unab) (community-observed)
+*Source:* [https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings](https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings) (community-observed)
 
 ### Event 41 - LOGON_FAILED (unofficial label; no symbolic name documented)
 

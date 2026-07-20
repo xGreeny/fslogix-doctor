@@ -92,7 +92,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 155 Pester tests against
+- **Tested like software, not like a script dump.** 158 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.

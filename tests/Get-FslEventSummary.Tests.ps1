@@ -120,9 +120,35 @@ Describe 'Get-FslEventSummary' {
             $bucket.Meaning | Should -Match 'OST'
         }
 
+        It 'leaves the channel empty when events carry no LogName' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            $bucket.Channel | Should -BeNullOrEmpty
+        }
+
         It 'leaves CuratedSeverity empty for events without an override' {
             $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
             $bucket.CuratedSeverity | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'channel tracking' {
+
+        BeforeAll {
+            $script:now = Get-Date
+            Mock Get-WinEvent -ModuleName FSLogixDoctor { @() }
+            Mock Get-WinEvent -ModuleName FSLogixDoctor -ParameterFilter {
+                $FilterHashtable.LogName -eq 'Microsoft-FSLogix-Apps/Admin'
+            } {
+                @(
+                    [pscustomobject]@{ Id = 33; Level = 3; LevelDisplayName = 'Warnung'; TimeCreated = $script:now.AddMinutes(-10); Message = 'The user vhd(x) has less than 200 MB free space left'; LogName = 'Microsoft-FSLogix-Apps/Admin' }
+                )
+            }
+        }
+
+        It 'names the channel the bucket came from' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 33
+            $bucket.Channel | Should -Be 'Microsoft-FSLogix-Apps/Admin'
+            $bucket.Meaning | Should -Match 'free space'
         }
     }
 

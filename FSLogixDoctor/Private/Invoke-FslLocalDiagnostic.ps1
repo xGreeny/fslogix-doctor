@@ -133,9 +133,16 @@ function Invoke-FslLocalDiagnostic {
         $benignCount = 0
         if ($null -ne $summary.PSObject.Properties['BenignCount']) { $benignCount = [int]$summary.BenignCount }
 
-        $evidence = ("Last seen {0}. Sample: {1}" -f $summary.LastSeen, $summary.SampleMessage)
+        # Name the channel so a follow-up Get-WinEvent does not have to guess
+        # between Operational and Admin.
+        $lastSeenLabel = ("Last seen {0}" -f $summary.LastSeen)
+        if ($null -ne $summary.PSObject.Properties['Channel'] -and $summary.Channel) {
+            $lastSeenLabel += (" in {0}" -f $summary.Channel)
+        }
+
+        $evidence = ("{0}. Sample: {1}" -f $lastSeenLabel, $summary.SampleMessage)
         if ($null -ne $summary.PSObject.Properties['TopMessages'] -and @($summary.TopMessages).Count -gt 0) {
-            $evidence = ("Last seen {0}. Messages: {1}" -f $summary.LastSeen, (@($summary.TopMessages) -join ' | '))
+            $evidence = ("{0}. Messages: {1}" -f $lastSeenLabel, (@($summary.TopMessages) -join ' | '))
         }
 
         if ($count -gt 0 -and $benignCount -ge $count) {
@@ -148,7 +155,7 @@ function Invoke-FslLocalDiagnostic {
         # Mixed bucket: lead the evidence with the alert-worthy messages so a
         # single real failure never hides behind the noise counts.
         if ($benignCount -gt 0 -and $null -ne $summary.PSObject.Properties['AlertMessages'] -and @($summary.AlertMessages).Count -gt 0) {
-            $evidence = ("Last seen {0}. Alert-worthy: {1}. Plus {2}x known-benign noise." -f $summary.LastSeen, (@($summary.AlertMessages) -join ' | '), $benignCount)
+            $evidence = ("{0}. Alert-worthy: {1}. Plus {2}x known-benign noise." -f $lastSeenLabel, (@($summary.AlertMessages) -join ' | '), $benignCount)
         }
 
         $severity = 'Warning'

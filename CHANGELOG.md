@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-20
+
+### Fixed
+
+- Event 33 curated entry corrected from field evidence: it is a container
+  free-space warning in Microsoft-FSLogix-Apps/Admin ('less than 200 MB free
+  space left ... Logins will fail if the vhd(x) gets too full'), not the
+  community-claimed attach failure. Causes/fixes now cover profile bloat,
+  Remove-FslOrphanedOst, VHDX resize and the Get-FslProfileReport overview.
+- Event findings name the channel in the evidence ('Last seen ... in
+  Microsoft-FSLogix-Apps/Admin'); `Get-FslEventSummary` gained a `Channel`
+  property. Follow-up Get-WinEvent queries no longer have to guess between
+  Operational and Admin.
+- Fleet findings are rebuilt as clean objects: the PSComputerName/RunspaceId
+  metadata that PowerShell remoting attaches no longer pollutes the output.
+
 ## [1.4.0] - 2026-07-20
 
 ### Added

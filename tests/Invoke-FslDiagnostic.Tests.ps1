@@ -189,13 +189,14 @@ Describe 'Invoke-FslDiagnostic' {
         It 'honors the curated severity override for housekeeping events' {
             Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
                 @(
-                    [pscustomobject]@{ ComputerName = 'HOST'; EventId = 29; Count = 2; BenignCount = 0; Level = 'Warnung'; LevelValue = 3; CuratedSeverity = 'Info'; Meaning = 'Orphaned OST housekeeping'; Recommendation = 'Delete the orphaned OST'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'Orphaned OST file(s) found.'; TopMessages = @('2x Orphaned OST file(s) found. Username: user#'); AlertMessages = @('2x Orphaned OST file(s) found. Username: user#') }
+                    [pscustomobject]@{ ComputerName = 'HOST'; Channel = 'Microsoft-FSLogix-Apps/Operational'; EventId = 29; Count = 2; BenignCount = 0; Level = 'Warnung'; LevelValue = 3; CuratedSeverity = 'Info'; Meaning = 'Orphaned OST housekeeping'; Recommendation = 'Delete the orphaned OST'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'Orphaned OST file(s) found.'; TopMessages = @('2x Orphaned OST file(s) found. Username: user#'); AlertMessages = @('2x Orphaned OST file(s) found. Username: user#') }
                 )
             }
             $findings = @(Invoke-FslDiagnostic)
             $eventFinding = @($findings | Where-Object Category -eq 'EventLog')
             $eventFinding[0].Severity | Should -Be 'Info'
             $eventFinding[0].Message | Should -Match 'Orphaned OST'
+            $eventFinding[0].Evidence | Should -Match 'in Microsoft-FSLogix-Apps/Operational'
         }
 
         It 'downgrades Critical log findings to Warning when every session attached cleanly' {
@@ -230,10 +231,12 @@ Describe 'Invoke-FslDiagnostic' {
 
         It 'merges findings that are identical across hosts and keeps host-specific ones separate' {
             Mock Invoke-Command -ModuleName FSLogixDoctor {
+                # PSComputerName/RunspaceId simulate the metadata that real
+                # remoting tacks onto returned objects.
                 $remoteHost = [string]$ComputerName
                 @(
-                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'Failure masking'; Severity = 'Warning'; Target = $remoteHost; Message = 'PreventLoginWithFailure=0'; Evidence = 'same'; Recommendation = 'set to 1'; HelpUri = '' }
-                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'LogFile'; Check = 'Log errors (0x00000005)'; Severity = 'Info'; Target = $remoteHost; Message = ("noise on {0}" -f $remoteHost); Evidence = ''; Recommendation = ''; HelpUri = '' }
+                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'Failure masking'; Severity = 'Warning'; Target = $remoteHost; Message = 'PreventLoginWithFailure=0'; Evidence = 'same'; Recommendation = 'set to 1'; HelpUri = ''; PSComputerName = $remoteHost; RunspaceId = [guid]::NewGuid() }
+                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'LogFile'; Check = 'Log errors (0x00000005)'; Severity = 'Info'; Target = $remoteHost; Message = ("noise on {0}" -f $remoteHost); Evidence = ''; Recommendation = ''; HelpUri = ''; PSComputerName = $remoteHost; RunspaceId = [guid]::NewGuid() }
                 )
             }
             $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-0', 'AVD-1')
@@ -242,6 +245,20 @@ Describe 'Invoke-FslDiagnostic' {
             $mergedFinding[0].Target | Should -Be 'AVD-0, AVD-1'
             $mergedFinding[0].Message | Should -Match 'Affects 2 hosts'
             @($findings | Where-Object Check -eq 'Log errors (0x00000005)').Count | Should -Be 2
+        }
+
+        It 'strips remoting metadata from fleet findings' {
+            Mock Invoke-Command -ModuleName FSLogixDoctor {
+                $remoteHost = [string]$ComputerName
+                @(
+                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'LogFile'; Check = 'Log errors (0x00000005)'; Severity = 'Info'; Target = $remoteHost; Message = ("noise on {0}" -f $remoteHost); Evidence = ''; Recommendation = ''; HelpUri = ''; PSComputerName = $remoteHost; RunspaceId = [guid]::NewGuid() }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-0')
+            foreach ($fleetFinding in $findings) {
+                $fleetFinding.PSObject.Properties['PSComputerName'] | Should -BeNullOrEmpty
+                $fleetFinding.PSObject.Properties['RunspaceId'] | Should -BeNullOrEmpty
+            }
         }
 
         It 'turns an unreachable host into a Critical fleet-connectivity finding' {
