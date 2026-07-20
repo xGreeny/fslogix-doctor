@@ -132,7 +132,7 @@ function Invoke-FslDiagnostic {
     $sorted = @($findings | Sort-Object -Property @{ Expression = { $severityOrder[$_.Severity] } }, Category, Check)
 
     if ($ReportPath) {
-        $report = $sorted | New-FslReport -Path $ReportPath
+        $report = $sorted | New-FslReport -Path $ReportPath -LookbackHours $Hours
         Write-Verbose ("Report written to {0}" -f $report.FullName)
         if (-not $PassThru -and -not $AsSummary -and -not $AsJson) {
             return $report

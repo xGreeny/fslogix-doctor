@@ -6,6 +6,33 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-20
+
+### Added
+
+- HTML report: fleet-aware default title ('FSLogix Fleet Report - N hosts';
+  single-host reports are named after the target host instead of the
+  executing machine), per-host status chips showing each host's worst
+  severity at a glance, and an 'Action items' section that lists every
+  Critical/Warning finding with its recommendation before the detail
+  tables - real work no longer drowns between Info rows.
+- HTML report: long curated meanings collapse behind a plain <details>
+  element (no JavaScript, still self-contained); the look-back window
+  appears in the header (`New-FslReport -LookbackHours`, passed
+  automatically by Invoke-FslDiagnostic).
+
+### Fixed
+
+- Fleet mode no longer produces pseudo-warnings for the share probe: inside
+  a remote (WinRM) session, Kerberos blocks the second hop to the file
+  server, so the probe fails regardless of the account's permissions. The
+  probe now detects remote execution ($PSSenderInfo; fixture snapshots can
+  inject `InRemoteSession`), says so in the evidence, and with healthy
+  sessions the finding lands at Info ('expected in fleet mode') instead of
+  Warning.
+- Message breakdowns truncate at 240 instead of 160 characters, so details
+  such as the event-29 'Potential Savings' figure survive.
+
 ## [1.4.1] - 2026-07-20
 
 ### Fixed

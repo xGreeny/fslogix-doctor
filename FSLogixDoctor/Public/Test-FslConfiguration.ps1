@@ -163,8 +163,19 @@ function Test-FslConfiguration {
                 }
             }
 
+            # In a remote (WinRM) session the probe CANNOT reach the share even
+            # with correct permissions: Kerberos blocks the second hop to the
+            # file server. Fleet mode always runs in exactly that situation.
+            $inRemoteSession = ($null -ne $PSSenderInfo)
+            if ($ConfigSnapshot.ContainsKey('InRemoteSession')) {
+                $inRemoteSession = [bool]$ConfigSnapshot.InRemoteSession
+            }
+
             $evidence = 'Note: the check runs in the current user context; the computer account or user may still have differing access.'
-            if ($portOpen -eq $true) {
+            if ($portOpen -eq $true -and $inRemoteSession) {
+                $evidence = ("The probe ran inside a remote (WinRM) session, where Kerberos blocks the second hop to the file server - this failure is expected in fleet mode regardless of the account's real permissions. TCP 445 to '{0}' is open. {1}" -f $shareHost, $evidence)
+            }
+            elseif ($portOpen -eq $true) {
                 $evidence = ("TCP 445 to '{0}' is open - the endpoint answers, so this looks like missing share permissions for the probing account '{1}', not a network problem. {2}" -f $shareHost, $env:USERNAME, $evidence)
             }
             elseif ($portOpen -eq $false) {

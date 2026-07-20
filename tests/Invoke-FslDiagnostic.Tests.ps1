@@ -165,6 +165,27 @@ Describe 'Invoke-FslDiagnostic' {
             $probe[0].Message | Should -Match 'Downgraded from Critical: 1 session'
         }
 
+        It 'downgrades the share probe to Info for the expected fleet double-hop' {
+            Mock Test-FslConfiguration -ModuleName FSLogixDoctor {
+                [pscustomobject]@{
+                    PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'VHDLocations reachable'
+                    Severity = 'Critical'; Target = 'HOST'
+                    Message = "Profile location '\\fs01\prof' is NOT reachable from this host (as the probing user)."
+                    Evidence = "The probe ran inside a remote (WinRM) session, where Kerberos blocks the second hop to the file server - this failure is expected in fleet mode regardless of the account's real permissions. TCP 445 to 'fs01' is open."
+                    Recommendation = 'rbac'; HelpUri = ''
+                }
+            }
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $probe = @($findings | Where-Object Check -eq 'VHDLocations reachable')
+            $probe[0].Severity | Should -Be 'Info'
+            $probe[0].Message | Should -Match 'expected in fleet mode'
+        }
+
         It 'keeps the unreachable-share probe Critical when TCP 445 is closed' {
             Mock Test-FslConfiguration -ModuleName FSLogixDoctor {
                 [pscustomobject]@{

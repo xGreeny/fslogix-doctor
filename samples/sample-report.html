@@ -24,6 +24,14 @@
   .verdict.pass { background: #e8f5e9; color: #2e7d32; }
   .verdict.warning { background: #fff3e0; color: #ef6c00; }
   .verdict.critical { background: #ffebee; color: #c62828; }
+  .hosts { margin: 6px 0 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .hostchip { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .hostchip.critical { background: #ffebee; color: #c62828; }
+  .hostchip.warning { background: #fff3e0; color: #ef6c00; }
+  .hostchip.info { background: #e1f5fe; color: #0277bd; }
+  .hostchip.pass { background: #e8f5e9; color: #2e7d32; }
+  details.msg summary { cursor: pointer; margin-bottom: 4px; }
+  details.msg .msgfull { margin: 6px 0 4px; }
   h2 { margin: 28px 0 10px; font-size: 17px; color: #102a43; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(16,42,67,.12); }
   th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #627d98; padding: 10px 14px; border-bottom: 2px solid #d9e2ec; }
@@ -44,16 +52,27 @@
 <body>
 <header>
   <h1>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</h1>
-  <div class="meta">Generated 2026-07-20 10:50 by FSLogixDoctor v1.4.1 &middot; 4 hosts &middot; read-only diagnostics &middot; no telemetry</div>
+  <div class="meta">Generated 2026-07-20 14:03 by FSLogixDoctor v1.5.0 &middot; 4 hosts &middot; read-only diagnostics &middot; no telemetry</div>
 </header>
 <main>
   <div class="verdict critical">Critical issues found</div>
+<div class="hosts"><span class="hostchip warning">\\lab-fs01\fslogix$</span><span class="hostchip critical">LAB-SH-01</span><span class="hostchip pass">LAB\jdoe</span><span class="hostchip critical">LAB\mmuster</span></div>
   <div class="tiles">
     <div class="tile critical"><div class="num">3</div><div class="label">Critical</div></div>
     <div class="tile warning"><div class="num">3</div><div class="label">Warnings</div></div>
     <div class="tile info"><div class="num">2</div><div class="label">Info</div></div>
     <div class="tile pass"><div class="num">4</div><div class="label">Passed</div></div>
   </div>
+<h2>Action items</h2>
+<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Action</th></tr></thead><tbody>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Event 26</td><td>LAB-SH-01</td><td>Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</td></tr>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Log errors (0x00000020)</td><td>LAB-SH-01</td><td>Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</td></tr>
+<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Session attach state</td><td>LAB\mmuster</td><td>Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</td></tr>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Antivirus exclusions</td><td>LAB-SH-01</td><td>Add the Microsoft-recommended FSLogix exclusions.</td></tr>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Failure masking</td><td>LAB-SH-01</td><td>Set both to 1 in production so attach failures surface immediately instead of costing user data.</td></tr>
+<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Orphaned containers</td><td>\\lab-fs01\fslogix$</td><td>Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</td></tr>
+</tbody></table>
+
 <h2>Configuration</h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
 <tr class="warning"><td><span class="badge warning">Warning</span></td><td>Antivirus exclusions</td><td>LAB-SH-01</td><td><div class="msg">Profile share paths are not in the Microsoft Defender path exclusions; on-access scanning of container disks degrades logon performance and can cause locks.</div><div class="evidence">Not excluded: \\lab-fs01\fslogix$</div><div class="fix">Fix: Add the Microsoft-recommended FSLogix exclusions.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/overview-prerequisites#configure-antivirus-file-and-folder-exclusions">Documentation</a></div></td></tr>

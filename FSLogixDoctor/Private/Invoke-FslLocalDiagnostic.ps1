@@ -53,8 +53,16 @@ function Invoke-FslLocalDiagnostic {
     if ($allSessionsHealthy) {
         $probeFindings = @($findings | Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' -and $_.Evidence -like '*TCP 445*is open*' })
         foreach ($probeFinding in $probeFindings) {
-            $probeFinding.Severity = 'Warning'
-            $probeFinding.Message += (" Downgraded from Critical: {0} session(s) are currently attached from this location and TCP 445 is open - the probing account likely lacks share permissions (typical for Azure Files identity-based auth), not an outage." -f $sessions.Count)
+            if ($probeFinding.Evidence -like '*remote (WinRM) session*') {
+                # Fleet mode: the second hop is blocked by design; with healthy
+                # sessions this is expected mechanics, not even a warning.
+                $probeFinding.Severity = 'Info'
+                $probeFinding.Message += (" Downgraded to Info: {0} session(s) are attached, TCP 445 is open and the probe ran in a remote session where the second hop to the file server is blocked by Kerberos - expected in fleet mode." -f $sessions.Count)
+            }
+            else {
+                $probeFinding.Severity = 'Warning'
+                $probeFinding.Message += (" Downgraded from Critical: {0} session(s) are currently attached from this location and TCP 445 is open - the probing account likely lacks share permissions (typical for Azure Files identity-based auth), not an outage." -f $sessions.Count)
+            }
         }
     }
 

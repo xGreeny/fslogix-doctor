@@ -29,7 +29,10 @@ function New-FslReport {
         [Parameter(Mandatory)]
         [string]$Path,
 
-        [string]$Title = ''
+        [string]$Title = '',
+
+        [ValidateRange(0, 8760)]
+        [int]$LookbackHours = 0
     )
 
     begin {
@@ -41,8 +44,18 @@ function New-FslReport {
     }
 
     end {
+        # Fleet reports carry merged targets ('host-a, host-b'); the distinct
+        # host list drives the title, the header label and the status chips.
+        $hostNames = @($all | ForEach-Object { ([string]$_.Target) -split ',\s*' } |
+                Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+        $hostCount = $hostNames.Count
+        $hostLabel = '1 host'
+        if ($hostCount -ne 1) { $hostLabel = ('{0} hosts' -f $hostCount) }
+
         if (-not $Title) {
-            $Title = 'FSLogix Health Report - {0}' -f $env:COMPUTERNAME
+            if ($hostCount -gt 1) { $Title = 'FSLogix Fleet Report - {0} hosts' -f $hostCount }
+            elseif ($hostCount -eq 1) { $Title = 'FSLogix Health Report - {0}' -f $hostNames[0] }
+            else { $Title = 'FSLogix Health Report - {0}' -f $env:COMPUTERNAME }
         }
         if (-not $PSCmdlet.ShouldProcess($Path, 'Write HTML report')) { return }
 
@@ -64,7 +77,15 @@ function New-FslReport {
             $null = $sections.AppendLine('<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>')
             $ordered = $category.Group | Sort-Object -Property @{ Expression = { $severityOrder[$_.Severity] } }, Check
             foreach ($f in $ordered) {
-                $details = '<div class="msg">{0}</div>' -f (& $encode $f.Message)
+                # Long curated meanings collapse to their first ~240 chars; the
+                # full text stays one click away (plain <details>, no script).
+                $messageText = [string]$f.Message
+                if ($messageText.Length -gt 280) {
+                    $details = '<details class="msg"><summary>{0}...</summary><div class="msgfull">{1}</div></details>' -f (& $encode $messageText.Substring(0, 240)), (& $encode $messageText)
+                }
+                else {
+                    $details = '<div class="msg">{0}</div>' -f (& $encode $messageText)
+                }
                 if ($f.Evidence) { $details += '<div class="evidence">{0}</div>' -f (& $encode $f.Evidence) }
                 if ($f.Recommendation) { $details += '<div class="fix">Fix: {0}</div>' -f (& $encode $f.Recommendation) }
                 if ($f.HelpUri) { $details += '<div class="link"><a href="{0}">Documentation</a></div>' -f (& $encode $f.HelpUri) }
@@ -78,12 +99,45 @@ function New-FslReport {
         $manifest = Get-Module -Name FSLogixDoctor
         if ($manifest) { $moduleVersion = [string]$manifest.Version }
 
-        # Fleet reports carry merged targets ('host-a, host-b'); count the
-        # distinct hosts across all findings for the header.
-        $hostCount = @($all | ForEach-Object { ([string]$_.Target) -split ',\s*' } |
-                Where-Object { $_ } | Select-Object -Unique).Count
-        $hostLabel = '1 host'
-        if ($hostCount -ne 1) { $hostLabel = ('{0} hosts' -f $hostCount) }
+        # Per-host status chips: worst severity per host, at a glance.
+        $hostChipsHtml = ''
+        if ($hostCount -gt 1) {
+            $chips = New-Object System.Text.StringBuilder
+            foreach ($hostName in $hostNames) {
+                $worstIndex = 3
+                foreach ($f in $all) {
+                    if ((([string]$f.Target) -split ',\s*') -contains $hostName -and $severityOrder[$f.Severity] -lt $worstIndex) {
+                        $worstIndex = $severityOrder[$f.Severity]
+                    }
+                }
+                $chipClass = @('critical', 'warning', 'info', 'pass')[$worstIndex]
+                $null = $chips.Append(('<span class="hostchip {0}">{1}</span>' -f $chipClass, (& $encode $hostName)))
+            }
+            $hostChipsHtml = ('<div class="hosts">{0}</div>' -f $chips.ToString())
+        }
+
+        # Action items: everything that actually needs a human, in one block -
+        # Critical and Warning findings must not drown between Info rows.
+        $actionSection = ''
+        $actionable = @($all | Where-Object { $_.Severity -in @('Critical', 'Warning') } |
+                Sort-Object -Property @{ Expression = { $severityOrder[$_.Severity] } }, Category, Check)
+        if ($actionable.Count -gt 0) {
+            $actions = New-Object System.Text.StringBuilder
+            $null = $actions.AppendLine('<h2>Action items</h2>')
+            $null = $actions.AppendLine('<table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Action</th></tr></thead><tbody>')
+            foreach ($f in $actionable) {
+                $action = [string]$f.Recommendation
+                if (-not $action) { $action = [string]$f.Message }
+                if ($action.Length -gt 220) { $action = $action.Substring(0, 220) + '...' }
+                $null = $actions.AppendLine(('<tr class="{0}"><td><span class="badge {0}">{1}</span></td><td>{2}</td><td>{3}</td><td>{4}</td></tr>' -f `
+                            $f.Severity.ToLowerInvariant(), (& $encode $f.Severity), (& $encode $f.Check), (& $encode $f.Target), (& $encode $action)))
+            }
+            $null = $actions.AppendLine('</tbody></table>')
+            $actionSection = $actions.ToString()
+        }
+
+        $lookbackSegment = ''
+        if ($LookbackHours -gt 0) { $lookbackSegment = (' &middot; last {0}h window' -f $LookbackHours) }
 
         $html = @"
 <!DOCTYPE html>
@@ -112,6 +166,14 @@ function New-FslReport {
   .verdict.pass { background: #e8f5e9; color: #2e7d32; }
   .verdict.warning { background: #fff3e0; color: #ef6c00; }
   .verdict.critical { background: #ffebee; color: #c62828; }
+  .hosts { margin: 6px 0 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .hostchip { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .hostchip.critical { background: #ffebee; color: #c62828; }
+  .hostchip.warning { background: #fff3e0; color: #ef6c00; }
+  .hostchip.info { background: #e1f5fe; color: #0277bd; }
+  .hostchip.pass { background: #e8f5e9; color: #2e7d32; }
+  details.msg summary { cursor: pointer; margin-bottom: 4px; }
+  details.msg .msgfull { margin: 6px 0 4px; }
   h2 { margin: 28px 0 10px; font-size: 17px; color: #102a43; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(16,42,67,.12); }
   th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #627d98; padding: 10px 14px; border-bottom: 2px solid #d9e2ec; }
@@ -132,16 +194,18 @@ function New-FslReport {
 <body>
 <header>
   <h1>$(& $encode $Title)</h1>
-  <div class="meta">Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm') by FSLogixDoctor v$moduleVersion &middot; $hostLabel &middot; read-only diagnostics &middot; no telemetry</div>
+  <div class="meta">Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm') by FSLogixDoctor v$moduleVersion &middot; $hostLabel$lookbackSegment &middot; read-only diagnostics &middot; no telemetry</div>
 </header>
 <main>
   <div class="verdict $verdictClass">$(& $encode $verdict)</div>
+$hostChipsHtml
   <div class="tiles">
     <div class="tile critical"><div class="num">$($counts['Critical'])</div><div class="label">Critical</div></div>
     <div class="tile warning"><div class="num">$($counts['Warning'])</div><div class="label">Warnings</div></div>
     <div class="tile info"><div class="num">$($counts['Info'])</div><div class="label">Info</div></div>
     <div class="tile pass"><div class="num">$($counts['Pass'])</div><div class="label">Passed</div></div>
   </div>
+$actionSection
 $($sections.ToString())
 </main>
 <footer>FSLogixDoctor &middot; https://github.com/xGreeny/fslogix-doctor</footer>

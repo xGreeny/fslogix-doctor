@@ -83,4 +83,74 @@ Describe 'New-FslReport' {
         @(New-TestFinding) | New-FslReport -Path $path -WhatIf
         Test-Path $path | Should -BeFalse
     }
+
+    Context 'fleet-aware rendering' {
+
+        It 'derives the default title from the single target host' {
+            $path = Join-Path $TestDrive 'title-single.html'
+            @(New-TestFinding) | New-FslReport -Path $path | Out-Null
+            (Get-Content $path -Raw) | Should -Match '<title>FSLogix Health Report - LAB-SH-01</title>'
+        }
+
+        It 'uses a fleet title and host chips when findings span multiple hosts' {
+            $path = Join-Path $TestDrive 'title-fleet.html'
+            $findings = @(
+                New-TestFinding -Severity Warning
+                New-TestFinding -Severity Pass
+            )
+            $findings[1].Target = 'LAB-SH-02'
+            $findings | New-FslReport -Path $path | Out-Null
+            $html = Get-Content $path -Raw
+            $html | Should -Match '<title>FSLogix Fleet Report - 2 hosts</title>'
+            $html | Should -Match 'hostchip warning">LAB-SH-01'
+            $html | Should -Match 'hostchip pass">LAB-SH-02'
+        }
+
+        It 'omits host chips for single-host reports' {
+            $path = Join-Path $TestDrive 'chips-single.html'
+            @(New-TestFinding) | New-FslReport -Path $path | Out-Null
+            # The .hostchip CSS class is always in the stylesheet; only the
+            # rendered chip markup must be absent.
+            (Get-Content $path -Raw) | Should -Not -Match '<span class="hostchip'
+        }
+    }
+
+    Context 'action items and readability' {
+
+        It 'lists Critical and Warning findings in the action items section' {
+            $path = Join-Path $TestDrive 'actions.html'
+            @(
+                New-TestFinding -Severity Critical
+                New-TestFinding -Severity Pass
+            ) | New-FslReport -Path $path | Out-Null
+            $html = Get-Content $path -Raw
+            $html | Should -Match '<h2>Action items</h2>'
+            $html | Should -Match '(?s)<h2>Action items</h2>.*Do the thing'
+        }
+
+        It 'omits the action items section when nothing needs a human' {
+            $path = Join-Path $TestDrive 'no-actions.html'
+            @(New-TestFinding -Severity Pass) | New-FslReport -Path $path | Out-Null
+            (Get-Content $path -Raw) | Should -Not -Match 'Action items'
+        }
+
+        It 'collapses long messages behind a details element' {
+            $path = Join-Path $TestDrive 'collapse.html'
+            $longMessage = ('This curated meaning is deliberately verbose. ' * 12)
+            @(New-TestFinding -Message $longMessage) | New-FslReport -Path $path | Out-Null
+            (Get-Content $path -Raw) | Should -Match '<details class="msg"><summary>'
+        }
+
+        It 'keeps short messages as plain divs' {
+            $path = Join-Path $TestDrive 'no-collapse.html'
+            @(New-TestFinding -Message 'Short and sweet.') | New-FslReport -Path $path | Out-Null
+            (Get-Content $path -Raw) | Should -Not -Match '<details class="msg">'
+        }
+
+        It 'shows the look-back window in the header when provided' {
+            $path = Join-Path $TestDrive 'lookback.html'
+            @(New-TestFinding) | New-FslReport -Path $path -LookbackHours 8 | Out-Null
+            (Get-Content $path -Raw) | Should -Match 'last 8h window'
+        }
+    }
 }

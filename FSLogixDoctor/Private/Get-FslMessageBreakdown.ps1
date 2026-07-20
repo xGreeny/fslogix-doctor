@@ -15,7 +15,7 @@ function Get-FslMessageBreakdown {
         [int]$Top = 3,
 
         [ValidateRange(40, 400)]
-        [int]$MaxLength = 160
+        [int]$MaxLength = 240
     )
 
     $groups = @($Message |

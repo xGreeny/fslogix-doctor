@@ -151,6 +151,18 @@ Describe 'Test-FslConfiguration' {
             $finding.HelpUri | Should -Match 'storage-files-identity-auth'
         }
 
+        It 'notes the blocked second hop when probing from a remote session' {
+            $snapshot = New-Snapshot -Overrides @{
+                VhdLocationsOnline = @{ '\\lab-fs01\fslogix$' = $false }
+                SmbPortOpen        = @{ '\\lab-fs01\fslogix$' = $true }
+                InRemoteSession    = $true
+            }
+            $finding = @(Test-FslConfiguration -ConfigSnapshot $snapshot) |
+                Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }
+            $finding.Evidence | Should -Match 'remote \(WinRM\) session'
+            $finding.Evidence | Should -Match 'second hop'
+        }
+
         It 'omits the port verdict for local (non-UNC) locations' {
             $snapshot = New-Snapshot -Overrides @{ VhdLocationsOnline = @{ 'D:\Profiles' = $false } }
             $snapshot.Profiles.VHDLocations = 'D:\Profiles'
