@@ -58,9 +58,34 @@ function Test-FslConfiguration {
     }
 
     if ($install.Version) {
-        New-FslFinding -Category Environment -Check 'FSLogix version' -Severity Info -Target $target `
-            -Message ("Installed FSLogix version: {0}." -f $install.Version) `
-            -Recommendation 'Compare against the current release and known issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes'
+        # Judge the version against the curated release table instead of
+        # 'compare manually'. The table is a shipped snapshot - the finding
+        # always names its AsOf date so an aging table stays honest.
+        $releaseTable = Get-FslDataTable -Name Releases
+        $newestCurated = $null
+        try {
+            $newestCurated = @($releaseTable.Releases | ForEach-Object { [version]$_.Version } | Sort-Object -Descending)[0]
+        }
+        catch { $newestCurated = $null }
+        $installedVersion = $null
+        try { $installedVersion = [version]$install.Version } catch { $installedVersion = $null }
+
+        if ($newestCurated -and $installedVersion -and $installedVersion -lt $newestCurated) {
+            New-FslFinding -Category Environment -Check 'FSLogix version' -Severity Warning -Target $target `
+                -Message ("Installed FSLogix version {0} is older than the newest curated release {1} (release table as of {2})." -f $install.Version, $newestCurated, $releaseTable.AsOf) `
+                -Recommendation 'Update FSLogix during the next maintenance window and review the release notes for fixed issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes' `
+                -HelpUri 'https://learn.microsoft.com/en-us/fslogix/overview-release-notes'
+        }
+        elseif ($newestCurated -and $installedVersion) {
+            New-FslFinding -Category Environment -Check 'FSLogix version' -Severity Info -Target $target `
+                -Message ("Installed FSLogix version {0} matches or exceeds the newest curated release (release table as of {1})." -f $install.Version, $releaseTable.AsOf) `
+                -Recommendation 'Spot-check the release notes for issues newer than the curated table: https://learn.microsoft.com/en-us/fslogix/overview-release-notes'
+        }
+        else {
+            New-FslFinding -Category Environment -Check 'FSLogix version' -Severity Info -Target $target `
+                -Message ("Installed FSLogix version: {0}." -f $install.Version) `
+                -Recommendation 'Compare against the current release and known issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes'
+        }
     }
 
     # --- Profiles configuration ----------------------------------------------

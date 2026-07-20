@@ -6,6 +6,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-20
+
+### Added
+
+- **Fleet mode**: `Invoke-FslDiagnostic -ComputerName avd-0, avd-1` runs the
+  diagnostic on multiple session hosts via PowerShell remoting and merges the
+  results. Findings identical across hosts (configuration drift) collapse
+  into one finding listing every affected host; host-specific findings stay
+  separate. Unreachable hosts become Critical 'Fleet connectivity' findings
+  instead of aborting the run. The HTML report header shows the host count.
+- **Monitoring output**: `-AsSummary` returns a `FSLogixDoctor.Summary`
+  object (severity counts, worst severity, exit code 0/1/2, findings);
+  `-AsJson` returns the same as JSON - made for RMM/monitoring sensors
+  (PRTG, Zabbix, scheduled tasks).
+- **Version currency check**: a curated release table
+  (`Data\Releases.psd1`, with an honest AsOf date) lets the version finding
+  give a verdict offline - older than the newest curated release becomes a
+  Warning instead of 'compare manually'.
+- **`Remove-FslOrphanedOst`**: first explicit `-Fix` companion (WhatIf-first,
+  ConfirmImpact High). Deletes orphaned Outlook OST caches flagged by event
+  29, keeps the newest OST per folder, skips locked files, reports per-file
+  results. Never called by the diagnostic itself.
+
+### Changed
+
+- The single-host diagnostic pipeline moved into the internal
+  `Invoke-FslLocalDiagnostic` so the local and fleet paths share one
+  implementation (no behavior change).
+
 ## [1.3.0] - 2026-07-20
 
 ### Added

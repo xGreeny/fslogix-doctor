@@ -226,6 +226,69 @@ Describe 'Invoke-FslDiagnostic' {
         }
     }
 
+    Context 'fleet mode' {
+
+        It 'merges findings that are identical across hosts and keeps host-specific ones separate' {
+            Mock Invoke-Command -ModuleName FSLogixDoctor {
+                $remoteHost = [string]$ComputerName
+                @(
+                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'Failure masking'; Severity = 'Warning'; Target = $remoteHost; Message = 'PreventLoginWithFailure=0'; Evidence = 'same'; Recommendation = 'set to 1'; HelpUri = '' }
+                    [pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'LogFile'; Check = 'Log errors (0x00000005)'; Severity = 'Info'; Target = $remoteHost; Message = ("noise on {0}" -f $remoteHost); Evidence = ''; Recommendation = ''; HelpUri = '' }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-0', 'AVD-1')
+            $mergedFinding = @($findings | Where-Object Check -eq 'Failure masking')
+            $mergedFinding.Count | Should -Be 1
+            $mergedFinding[0].Target | Should -Be 'AVD-0, AVD-1'
+            $mergedFinding[0].Message | Should -Match 'Affects 2 hosts'
+            @($findings | Where-Object Check -eq 'Log errors (0x00000005)').Count | Should -Be 2
+        }
+
+        It 'turns an unreachable host into a Critical fleet-connectivity finding' {
+            Mock Invoke-Command -ModuleName FSLogixDoctor { throw 'WinRM cannot complete the operation' }
+            $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-DEAD')
+            $connectivity = @($findings | Where-Object Check -eq 'Fleet connectivity')
+            $connectivity.Count | Should -Be 1
+            $connectivity[0].Severity | Should -Be 'Critical'
+            $connectivity[0].Target | Should -Be 'AVD-DEAD'
+            $connectivity[0].Message | Should -Match 'WinRM'
+        }
+    }
+
+    Context 'summary and JSON output' {
+
+        It 'returns a summary object with counts and a monitoring exit code' {
+            $summary = Invoke-FslDiagnostic -AsSummary
+            $summary.PSObject.TypeNames | Should -Contain 'FSLogixDoctor.Summary'
+            $summary.CriticalCount | Should -BeGreaterThan 0
+            $summary.WorstSeverity | Should -Be 'Critical'
+            $summary.ExitCode | Should -Be 2
+            @($summary.Findings).Count | Should -BeGreaterThan 3
+        }
+
+        It 'returns valid JSON with -AsJson' {
+            $json = Invoke-FslDiagnostic -AsJson
+            $json | Should -BeOfType [string]
+            $parsed = $json | ConvertFrom-Json
+            $parsed.WorstSeverity | Should -Be 'Critical'
+            $parsed.ExitCode | Should -Be 2
+        }
+
+        It 'reports ExitCode 0 when only Pass and Info findings exist' {
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true }
+                )
+            }
+            Mock Get-FslLogError -ModuleName FSLogixDoctor { @() }
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor { @() }
+            $summary = Invoke-FslDiagnostic -AsSummary
+            $summary.ExitCode | Should -Be 0
+            $summary.CriticalCount | Should -Be 0
+            $summary.WarningCount | Should -Be 0
+        }
+    }
+
     It 'does not escalate WARN-only curated codes to Critical' {
         Mock Get-FslLogError -ModuleName FSLogixDoctor {
             @(

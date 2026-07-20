@@ -78,6 +78,13 @@ function New-FslReport {
         $manifest = Get-Module -Name FSLogixDoctor
         if ($manifest) { $moduleVersion = [string]$manifest.Version }
 
+        # Fleet reports carry merged targets ('host-a, host-b'); count the
+        # distinct hosts across all findings for the header.
+        $hostCount = @($all | ForEach-Object { ([string]$_.Target) -split ',\s*' } |
+                Where-Object { $_ } | Select-Object -Unique).Count
+        $hostLabel = '1 host'
+        if ($hostCount -ne 1) { $hostLabel = ('{0} hosts' -f $hostCount) }
+
         $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -125,7 +132,7 @@ function New-FslReport {
 <body>
 <header>
   <h1>$(& $encode $Title)</h1>
-  <div class="meta">Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm') by FSLogixDoctor v$moduleVersion &middot; read-only diagnostics &middot; no telemetry</div>
+  <div class="meta">Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm') by FSLogixDoctor v$moduleVersion &middot; $hostLabel &middot; read-only diagnostics &middot; no telemetry</div>
 </header>
 <main>
   <div class="verdict $verdictClass">$(& $encode $verdict)</div>

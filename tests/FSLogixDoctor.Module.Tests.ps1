@@ -21,6 +21,7 @@ Describe 'FSLogixDoctor module' {
             'Get-FslSessionState'
             'Invoke-FslDiagnostic'
             'New-FslReport'
+            'Remove-FslOrphanedOst'
             'Test-FslConfiguration'
         )
         $exported = (Get-Module FSLogixDoctor).ExportedFunctions.Keys | Sort-Object
@@ -42,6 +43,7 @@ Describe 'FSLogixDoctor module' {
         'Get-FslSessionState'
         'Invoke-FslDiagnostic'
         'New-FslReport'
+        'Remove-FslOrphanedOst'
         'Test-FslConfiguration'
     ) {
         $help = Get-Help $_ -ErrorAction Stop
@@ -81,6 +83,16 @@ Describe 'FSLogixDoctor module' {
             foreach ($key in $data.Keys) {
                 $key | Should -Match '^\d+$'
                 $data[$key].Meaning | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It 'ships a well-formed release table' {
+            $data = Import-PowerShellDataFile (Join-Path $PSScriptRoot '..\FSLogixDoctor\Data\Releases.psd1')
+            $data.AsOf | Should -Match '^\d{4}-\d{2}-\d{2}$'
+            @($data.Releases).Count | Should -BeGreaterThan 1
+            foreach ($entry in $data.Releases) {
+                { [version]$entry.Version } | Should -Not -Throw
+                $entry.Notes | Should -Not -BeNullOrEmpty
             }
         }
 

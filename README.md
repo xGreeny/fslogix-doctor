@@ -68,7 +68,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 | Function | What it answers | Run on |
 |---|---|---|
-| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - all checks below, one command, optional HTML report | session host |
+| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - all checks below, one command, optional HTML report; fleet mode via `-ComputerName`, monitoring output via `-AsSummary`/`-AsJson` | session host or admin box |
 | `Get-FslErrorCode` | "What does `0x00000020` mean and how do I fix it?" | anywhere |
 | `Get-FslSessionState` | "Why did this user get a temp profile?" - translated Status/Reason/Error per session | session host |
 | `Get-FslLogError` | Structured WARN/ERROR entries from the FSLogix text logs, codes extracted and normalized (incl. HRESULT form) | session host |
@@ -78,6 +78,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 | `Get-FslOrphanedDisk` | "Which containers belong to deleted/disabled users, and how many GB do I get back?" | anywhere with share access |
 | `Get-FslLockedProfile` | "Who is holding this VHDX open?" - stale SMB handles behind 'profile in use' | file server |
 | `New-FslReport` | Any findings → one self-contained HTML report | anywhere |
+| `Remove-FslOrphanedOst` | Cleanup companion to event 29: deletes orphaned Outlook OST caches, WhatIf-first | session host / mounted container |
 
 ## Design principles
 
@@ -91,7 +92,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 139 Pester tests against
+- **Tested like software, not like a script dump.** 155 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.
@@ -107,7 +108,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 - [x] On the [PowerShell Gallery](https://www.powershellgallery.com/packages/FSLogixDoctor) (since v1.2.0)
 - [ ] `Get-FslProfileReport`: parallel scanning for multi-TB shares
-- [ ] Optional `-Fix` companions (explicit, `-WhatIf`-first) for safe cleanups
+- [x] Optional `-Fix` companions (explicit, `-WhatIf`-first) - first one: `Remove-FslOrphanedOst` (v1.4.0)
 - [ ] Cloud Cache (CCD) health checks
 - [ ] More error codes - contribute the ones you have diagnosed!
 

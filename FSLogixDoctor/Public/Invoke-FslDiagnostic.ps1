@@ -30,12 +30,35 @@ function Invoke-FslDiagnostic {
         When set, additionally writes the HTML report to this path.
     .PARAMETER PassThru
         Emit the finding objects even when -ReportPath is used.
+    .PARAMETER ComputerName
+        Fleet mode: run the diagnostic on one or more session hosts via
+        PowerShell remoting and aggregate the results. FSLogixDoctor must be
+        installed on each target (Install-Module FSLogixDoctor). Findings that
+        are identical across hosts (typically configuration drift) are merged
+        into one finding listing every affected host; host-specific findings
+        stay separate. Unreachable hosts become Critical 'Fleet connectivity'
+        findings instead of aborting the run.
+    .PARAMETER AsSummary
+        Return one FSLogixDoctor.Summary object (severity counts, worst
+        severity, monitoring-friendly ExitCode, plus the findings) instead of
+        the raw finding stream.
+    .PARAMETER AsJson
+        Like -AsSummary, but returns the summary serialized as JSON - made for
+        RMM/monitoring sensors (PRTG, Zabbix, scheduled tasks).
     .EXAMPLE
         Invoke-FslDiagnostic
 
         Full diagnostic of the local session host, findings on the pipeline.
     .EXAMPLE
         Invoke-FslDiagnostic -Hours 4 -ReportPath C:\Temp\fslogix-report.html
+    .EXAMPLE
+        Invoke-FslDiagnostic -ComputerName avd-0, avd-1 -ReportPath .\fleet.html
+
+        Fleet diagnostic of two session hosts, merged into one report.
+    .EXAMPLE
+        $r = Invoke-FslDiagnostic -AsSummary; exit $r.ExitCode
+
+        Monitoring wrapper: exit 0 = healthy, 1 = warnings, 2 = critical.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -49,181 +72,96 @@ function Invoke-FslDiagnostic {
 
         [string]$ReportPath,
 
-        [switch]$PassThru
+        [switch]$PassThru,
+
+        [string[]]$ComputerName = @(),
+
+        [switch]$AsSummary,
+
+        [switch]$AsJson
     )
 
-    $after = (Get-Date).AddHours(-1 * $Hours)
     $findings = New-Object System.Collections.Generic.List[object]
 
-    # 1 + 2: Environment and configuration (Test-FslConfiguration covers both).
-    Write-Verbose 'Checking install state and configuration...'
-    foreach ($finding in (Test-FslConfiguration)) { $findings.Add($finding) }
-
-    # 3: Per-session state.
-    Write-Verbose 'Reading per-session profile state...'
-    $sessions = @(Get-FslSessionState -WarningAction SilentlyContinue)
-    $unhealthy = @($sessions | Where-Object { -not $_.Healthy })
-    foreach ($session in $unhealthy) {
-        $label = $session.Account
-        if (-not $label) { $label = $session.Sid }
-        $findings.Add((New-FslFinding -Category SessionState -Check 'Session attach state' -Severity Warning -Target $label `
-                    -Message ("Last attach did not complete cleanly: Status={0} ({1}), Reason={2} ({3})." -f $session.Status, $session.StatusText, $session.Reason, $session.ReasonText) `
-                    -Evidence ("Error: {0} - {1}" -f $session.Error, $session.ErrorText) `
-                    -Recommendation 'Correlate with Get-FslLogError around the login time of this user.'))
-    }
-    if ($sessions.Count -gt 0 -and $unhealthy.Count -eq 0) {
-        $findings.Add((New-FslFinding -Category SessionState -Check 'Session attach state' -Severity Pass `
-                    -Message ("All {0} recorded session(s) attached cleanly." -f $sessions.Count)))
-    }
-
-    # When every recorded session attached cleanly, log/event errors have no
-    # visible user impact (yet); Critical log/event findings are downgraded to
-    # Warning below so real outages stand out from service-level noise.
-    $allSessionsHealthy = ($sessions.Count -gt 0 -and $unhealthy.Count -eq 0)
-    $correlationNote = 'Downgraded from Critical: all recorded sessions attached cleanly, so no user impact is visible yet.'
-
-    # Same correlation for the share-reachability probe: sessions that are
-    # attached right now from the 'unreachable' share contradict an outage.
-    # Only applies when TCP 445 answered - a closed SMB port stays Critical
-    # because the attached sessions may predate a real network break.
-    if ($allSessionsHealthy) {
-        $probeFindings = @($findings | Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' -and $_.Evidence -like '*TCP 445*is open*' })
-        foreach ($probeFinding in $probeFindings) {
-            $probeFinding.Severity = 'Warning'
-            $probeFinding.Message += (" Downgraded from Critical: {0} session(s) are currently attached from this location and TCP 445 is open - the probing account likely lacks share permissions (typical for Azure Files identity-based auth), not an outage." -f $sessions.Count)
-        }
-    }
-
-    # 4: Log file errors, grouped by error code.
-    Write-Verbose ("Parsing FSLogix logs since {0}..." -f $after)
-    $logParams = @{ Path = $LogPath; After = $after; WarningAction = 'SilentlyContinue' }
-    if ($IncludeWarnings) { $logParams['IncludeWarnings'] = $true }
-    $logEntries = @(Get-FslLogError @logParams)
-
-    foreach ($group in ($logEntries | Group-Object ErrorCode | Sort-Object Count -Descending)) {
-        $codeLabel = $group.Name
-        if (-not $codeLabel) { $codeLabel = 'no code' }
-
-        # The same error code can carry both real failures and known-benign noise
-        # (e.g. 0x00000005 for real ACL problems AND the harmless GPO DataStore
-        # import); classify per message, not per code.
-        $benign = @($group.Group | Where-Object { $_.Benign })
-        $alertable = @($group.Group | Where-Object { -not $_.Benign })
-
-        if ($alertable.Count -eq 0) {
-            $breakdown = (@(Get-FslMessageBreakdown -Message @($group.Group | ForEach-Object Message)) -join ' | ')
-            $reasons = (@($group.Group | ForEach-Object { (Test-FslBenignMessage -Message $_.Message).Reason } | Select-Object -Unique) -join ' ')
-            $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity Info `
-                        -Message ("{0}x in the last {1}h: [{2}] every occurrence matches a known-benign noise pattern - no action needed. {3}" -f $group.Count, $Hours, $codeLabel, $reasons) `
-                        -Evidence ("Messages: {0}" -f $breakdown)))
-            continue
-        }
-
-        # Mixed bucket: the alert-worthy messages lead the evidence, never the
-        # noise - one real failure must not hide behind 60x of known chatter.
-        $alertBreakdown = (@(Get-FslMessageBreakdown -Message @($alertable | ForEach-Object Message) -Top 5) -join ' | ')
-
-        $sample = $alertable | Select-Object -Last 1
-        $severity = 'Warning'
-        $meaning = ''
-        $recommendation = ''
-        $helpUri = ''
-        $groupHasError = (@($alertable | Where-Object Level -eq 'ERROR').Count -gt 0)
-        if ($group.Name) {
-            $decoded = Get-FslErrorCode -Code $group.Name
-            if ($decoded) {
-                $meaning = $decoded.Meaning
-                $recommendation = (@($decoded.Fixes) -join ' ')
-                # Curated codes are escalated only when the alert-worthy lines
-                # contain ERROR-level entries; several curated codes are documented
-                # as benign at WARN level (e.g. 0x00000002 at a user's first
-                # sign-in).
-                if ($decoded.InDatabase -and $groupHasError) { $severity = 'Critical' }
-                $helpUri = [string]$decoded.Source
+    # --- Fleet mode: fan out via PowerShell remoting, merge, then fall through
+    # to the shared output section. Each host runs the normal single-host path.
+    if (@($ComputerName).Count -gt 0) {
+        foreach ($computer in $ComputerName) {
+            $hostFindings = @()
+            if ($computer -in @($env:COMPUTERNAME, 'localhost', '.')) {
+                Write-Verbose ("Fleet: running locally on {0}..." -f $env:COMPUTERNAME)
+                $hostFindings = @(Invoke-FslDiagnostic -Hours $Hours -LogPath $LogPath -IncludeWarnings:$IncludeWarnings)
             }
+            else {
+                Write-Verbose ("Fleet: running remotely on {0}..." -f $computer)
+                try {
+                    $hostFindings = @(Invoke-Command -ComputerName $computer -ErrorAction Stop -ScriptBlock {
+                            Import-Module FSLogixDoctor -ErrorAction Stop
+                            Invoke-FslDiagnostic -Hours $using:Hours -IncludeWarnings:$using:IncludeWarnings
+                        })
+                }
+                catch {
+                    $hostFindings = @(New-FslFinding -Category Environment -Check 'Fleet connectivity' -Severity Critical -Target $computer `
+                            -Message ("Could not run the diagnostic on '{0}': {1}" -f $computer, $_.Exception.Message) `
+                            -Recommendation 'Verify PowerShell remoting is enabled on the target (Enable-PSRemoting) and that FSLogixDoctor is installed there: Install-Module FSLogixDoctor.')
+                }
+            }
+            foreach ($hostFinding in $hostFindings) { $findings.Add($hostFinding) }
         }
 
-        $message = ("{0}x in the last {1}h: [{2}] {3}" -f $alertable.Count, $Hours, $codeLabel, $meaning).Trim()
-        if ($benign.Count -gt 0) {
-            $message += (" (Plus {0} known-benign noise line(s) with the same code, excluded from this count.)" -f $benign.Count)
-        }
-        if ($severity -eq 'Critical' -and $allSessionsHealthy) {
-            $severity = 'Warning'
-            $message += ' ' + $correlationNote
-        }
-        $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity $severity `
-                    -Message $message `
-                    -Evidence ("Alert-worthy: {0}. Sample: {1} ({2}:{3})" -f $alertBreakdown, $sample.Message, $sample.File, $sample.LineNumber) `
-                    -Recommendation $recommendation -HelpUri $helpUri))
+        $merged = @(Merge-FslFleetFinding -Finding $findings.ToArray())
+        $findings = New-Object System.Collections.Generic.List[object]
+        foreach ($mergedFinding in $merged) { $findings.Add($mergedFinding) }
     }
-    if ($logEntries.Count -eq 0) {
-        $findings.Add((New-FslFinding -Category LogFile -Check 'Log errors' -Severity Pass `
-                    -Message ("No errors in the FSLogix logs in the last {0} hours." -f $Hours)))
-    }
-
-    # 5: Event log summary.
-    Write-Verbose 'Summarizing FSLogix event logs...'
-    $eventSummaries = @(Get-FslEventSummary -After $after -MinimumLevel Warning -WarningAction SilentlyContinue)
-    foreach ($summary in $eventSummaries) {
-        $count = [int]$summary.Count
-        $benignCount = 0
-        if ($null -ne $summary.PSObject.Properties['BenignCount']) { $benignCount = [int]$summary.BenignCount }
-
-        $evidence = ("Last seen {0}. Sample: {1}" -f $summary.LastSeen, $summary.SampleMessage)
-        if ($null -ne $summary.PSObject.Properties['TopMessages'] -and @($summary.TopMessages).Count -gt 0) {
-            $evidence = ("Last seen {0}. Messages: {1}" -f $summary.LastSeen, (@($summary.TopMessages) -join ' | '))
+    else {
+        foreach ($localFinding in @(Invoke-FslLocalDiagnostic -Hours $Hours -LogPath $LogPath -IncludeWarnings:$IncludeWarnings)) {
+            $findings.Add($localFinding)
         }
-
-        if ($count -gt 0 -and $benignCount -ge $count) {
-            $findings.Add((New-FslFinding -Category EventLog -Check ("Event {0}" -f $summary.EventId) -Severity Info -Target $summary.ComputerName `
-                        -Message ("{0}x event {1}: every occurrence matches a known-benign noise pattern - no action needed." -f $count, $summary.EventId) `
-                        -Evidence $evidence))
-            continue
-        }
-
-        # Mixed bucket: lead the evidence with the alert-worthy messages so a
-        # single real failure never hides behind the noise counts.
-        if ($benignCount -gt 0 -and $null -ne $summary.PSObject.Properties['AlertMessages'] -and @($summary.AlertMessages).Count -gt 0) {
-            $evidence = ("Last seen {0}. Alert-worthy: {1}. Plus {2}x known-benign noise." -f $summary.LastSeen, (@($summary.AlertMessages) -join ' | '), $benignCount)
-        }
-
-        $severity = 'Warning'
-        # Classify on the numeric level (1=Critical, 2=Error) - LevelDisplayName
-        # is localized and must never be used for logic.
-        if ($null -ne $summary.LevelValue -and [int]$summary.LevelValue -le 2) { $severity = 'Critical' }
-        # A curated database entry may pin the severity (housekeeping events such
-        # as event 29 'Orphaned OST' are logged as Warning but only carry an FYI).
-        $curatedSeverity = $null
-        if ($null -ne $summary.PSObject.Properties['CuratedSeverity']) { $curatedSeverity = [string]$summary.CuratedSeverity }
-        if ($curatedSeverity -in @('Pass', 'Info', 'Warning', 'Critical')) { $severity = $curatedSeverity }
-        $message = ("{0}x event {1}: {2}" -f $count, $summary.EventId, $summary.Meaning)
-        if ($benignCount -gt 0) {
-            $message += (" ({0} of {1} occurrences match known-benign noise patterns.)" -f $benignCount, $count)
-        }
-        if ($severity -eq 'Critical' -and $allSessionsHealthy) {
-            $severity = 'Warning'
-            $message += ' ' + $correlationNote
-        }
-        $findings.Add((New-FslFinding -Category EventLog -Check ("Event {0}" -f $summary.EventId) -Severity $severity -Target $summary.ComputerName `
-                    -Message $message `
-                    -Evidence $evidence `
-                    -Recommendation $summary.Recommendation))
-    }
-    if ($eventSummaries.Count -eq 0) {
-        $findings.Add((New-FslFinding -Category EventLog -Check 'FSLogix events' -Severity Pass `
-                    -Message ("No warning or error events in the FSLogix channels in the last {0} hours." -f $Hours)))
     }
 
-    # Output: report and/or pipeline.
+    # Output: report, summary/JSON and/or pipeline.
     $severityOrder = @{ 'Critical' = 0; 'Warning' = 1; 'Info' = 2; 'Pass' = 3 }
     $sorted = @($findings | Sort-Object -Property @{ Expression = { $severityOrder[$_.Severity] } }, Category, Check)
 
     if ($ReportPath) {
         $report = $sorted | New-FslReport -Path $ReportPath
         Write-Verbose ("Report written to {0}" -f $report.FullName)
-        if (-not $PassThru) {
+        if (-not $PassThru -and -not $AsSummary -and -not $AsJson) {
             return $report
         }
     }
+
+    if ($AsSummary -or $AsJson) {
+        $counts = @{}
+        foreach ($severityName in @('Critical', 'Warning', 'Info', 'Pass')) {
+            $counts[$severityName] = @($sorted | Where-Object Severity -eq $severityName).Count
+        }
+        # Worst severity maps to a monitoring-friendly exit code:
+        # 0 = healthy (Pass/Info only), 1 = warnings, 2 = critical.
+        $worst = 'None'
+        $exitCode = 0
+        if ($counts['Critical'] -gt 0) { $worst = 'Critical'; $exitCode = 2 }
+        elseif ($counts['Warning'] -gt 0) { $worst = 'Warning'; $exitCode = 1 }
+        elseif ($counts['Info'] -gt 0) { $worst = 'Info' }
+        elseif ($counts['Pass'] -gt 0) { $worst = 'Pass' }
+
+        $summaryObject = [pscustomobject]@{
+            PSTypeName    = 'FSLogixDoctor.Summary'
+            Target        = ((@($sorted | ForEach-Object { [string]$_.Target } | Select-Object -Unique | Sort-Object)) -join ', ')
+            GeneratedAt   = Get-Date
+            CriticalCount = $counts['Critical']
+            WarningCount  = $counts['Warning']
+            InfoCount     = $counts['Info']
+            PassCount     = $counts['Pass']
+            WorstSeverity = $worst
+            ExitCode      = $exitCode
+            Findings      = $sorted
+        }
+        if ($AsJson) {
+            return ($summaryObject | ConvertTo-Json -Depth 5)
+        }
+        return $summaryObject
+    }
+
     $sorted
 }

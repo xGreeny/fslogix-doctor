@@ -5,7 +5,7 @@ BeforeAll {
         param([hashtable]$Overrides = @{})
         $snapshot = @{
             ComputerName       = 'LAB-SH-01'
-            Install            = [pscustomobject]@{ Installed = $true; ServiceStatus = 'Running'; Version = '2.9.8884.27471' }
+            Install            = [pscustomobject]@{ Installed = $true; ServiceStatus = 'Running'; Version = '3.26.102.18413' }
             Profiles           = @{
                 Enabled                              = 1
                 VHDLocations                         = '\\lab-fs01\fslogix$'
@@ -84,6 +84,33 @@ Describe 'Test-FslConfiguration' {
         $snapshot = New-Snapshot -Overrides @{ VhdLocationsOnline = @{ '\\lab-fs01\fslogix$' = $false } }
         $findings = @(Test-FslConfiguration -ConfigSnapshot $snapshot)
         @($findings | Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }).Count | Should -Be 1
+    }
+
+    Context 'version currency against the curated release table' {
+
+        It 'reports the newest curated version as Info' {
+            $findings = @(Test-FslConfiguration -ConfigSnapshot (New-Snapshot))
+            $versionFinding = @($findings | Where-Object Check -eq 'FSLogix version')
+            $versionFinding[0].Severity | Should -Be 'Info'
+            $versionFinding[0].Message | Should -Match 'matches or exceeds'
+            $versionFinding[0].Message | Should -Match 'as of'
+        }
+
+        It 'warns when the installed version is older than the newest curated release' {
+            $snapshot = New-Snapshot -Overrides @{ Install = [pscustomobject]@{ Installed = $true; ServiceStatus = 'Running'; Version = '3.25.626.21064' } }
+            $findings = @(Test-FslConfiguration -ConfigSnapshot $snapshot)
+            $versionFinding = @($findings | Where-Object Check -eq 'FSLogix version')
+            $versionFinding[0].Severity | Should -Be 'Warning'
+            $versionFinding[0].Message | Should -Match 'older than the newest curated release'
+        }
+
+        It 'falls back to the plain Info finding when the version does not parse' {
+            $snapshot = New-Snapshot -Overrides @{ Install = [pscustomobject]@{ Installed = $true; ServiceStatus = 'Running'; Version = 'unknown-build' } }
+            $findings = @(Test-FslConfiguration -ConfigSnapshot $snapshot)
+            $versionFinding = @($findings | Where-Object Check -eq 'FSLogix version')
+            $versionFinding[0].Severity | Should -Be 'Info'
+            $versionFinding[0].Message | Should -Match 'Installed FSLogix version: unknown-build'
+        }
     }
 
     Context 'unreachable share: network vs permission separation' {
