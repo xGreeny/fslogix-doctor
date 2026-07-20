@@ -11,6 +11,9 @@ function Invoke-FslDiagnostic {
           3. SessionState   - per-session Status/Reason/Error, translated
           4. LogFile        - recent errors from the FSLogix text logs, decoded
           5. EventLog       - FSLogix event channels, bucketed and explained
+          6. ContextEvents  - curated events from the surrounding Windows logs
+                              (User Profile Service, NTFS, disk), correlated
+                              with the FSLogix findings
 
         Returns FSLogixDoctor.Finding objects and optionally renders them into a
         self-contained HTML report (-ReportPath).

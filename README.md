@@ -73,6 +73,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 | `Get-FslSessionState` | "Why did this user get a temp profile?" - translated Status/Reason/Error per session | session host |
 | `Get-FslLogError` | Structured WARN/ERROR entries from the FSLogix text logs, codes extracted and normalized (incl. HRESULT form) | session host |
 | `Get-FslEventSummary` | FSLogix event channels bucketed by ID and explained | session host |
+| `Get-FslContextEvent` | Curated profile-related events from the surrounding Windows logs (User Profile Service, NTFS, disk) | session host |
 | `Test-FslConfiguration` | Misconfigurations that cause temp profiles, login hangs and data loss - 15+ rules distilled from real troubleshooting | session host |
 | `Get-FslProfileReport` | Size, age and structural anomalies of every container on a share - without mounting anything | anywhere with share access |
 | `Get-FslOrphanedDisk` | "Which containers belong to deleted/disabled users, and how many GB do I get back?" | anywhere with share access |
@@ -93,7 +94,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 184 Pester tests against
+- **Tested like software, not like a script dump.** 193 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.

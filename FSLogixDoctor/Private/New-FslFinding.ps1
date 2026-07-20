@@ -8,7 +8,7 @@ function New-FslFinding {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('Environment', 'Configuration', 'SessionState', 'LogFile', 'EventLog', 'ProfileStore')]
+        [ValidateSet('Environment', 'Configuration', 'SessionState', 'LogFile', 'EventLog', 'ProfileStore', 'ContextEvents')]
         [string]$Category,
 
         [Parameter(Mandatory)]

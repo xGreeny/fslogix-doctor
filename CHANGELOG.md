@@ -6,6 +6,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-20
+
+### Added
+
+- **Context channels**: the diagnostic now reads the Windows logs AROUND
+  FSLogix instead of sending you there. A curated database
+  (`Data\ContextEvents.psd1`) covers the temp-profile chain (User Profile
+  Service 1511/1515), registry-handle leaks at logoff (1530), undeletable
+  profile directories (1533), NTFS corruption (System 55) and disk-level
+  I/O trouble (7/153) - each with meaning, causes and fixes phrased for
+  FSLogix hosts, provider-filtered so foreign events with the same ID
+  never match.
+- **`Get-FslContextEvent`**: standalone query for the curated context
+  events, bucketed per event kind and computer like Get-FslEventSummary.
+- **Correlation across log worlds**: `Invoke-FslDiagnostic` combines the
+  new ContextEvents category with its FSLogix findings - a temp-profile
+  event alongside an attach failure reads 'the temporary profile is the
+  visible symptom, the attach failure above is the likely cause'; NTFS 55
+  alongside ErrCode 42008 / event 33 reads 'independent confirmation of
+  the container volume-error findings'; a temp-profile event without any
+  FSLogix trouble is flagged as possibly non-FSLogix.
+
 ## [1.6.1] - 2026-07-20
 
 ### Fixed

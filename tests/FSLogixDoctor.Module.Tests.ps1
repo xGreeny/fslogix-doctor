@@ -12,6 +12,7 @@ Describe 'FSLogixDoctor module' {
 
     It 'exports exactly the documented public functions' {
         $expected = @(
+            'Get-FslContextEvent'
             'Get-FslErrorCode'
             'Get-FslEventSummary'
             'Get-FslLockedProfile'
@@ -35,6 +36,7 @@ Describe 'FSLogixDoctor module' {
     }
 
     It 'provides comment-based help with a synopsis for <_>' -ForEach @(
+        'Get-FslContextEvent'
         'Get-FslErrorCode'
         'Get-FslEventSummary'
         'Get-FslLockedProfile'
@@ -95,6 +97,22 @@ Describe 'FSLogixDoctor module' {
             foreach ($entry in $data.Releases) {
                 { [version]$entry.Version } | Should -Not -Throw
                 $entry.Notes | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It 'ships a well-formed context-event database' {
+            $data = Import-PowerShellDataFile (Join-Path $PSScriptRoot '..\FSLogixDoctor\Data\ContextEvents.psd1')
+            @($data.Events).Count | Should -BeGreaterThan 4
+            foreach ($entry in $data.Events) {
+                $entry.Key | Should -Match '^\w+:\d+$'
+                $entry.LogName | Should -Not -BeNullOrEmpty
+                $entry.ProviderPattern | Should -Not -BeNullOrEmpty
+                $entry.Label | Should -Not -BeNullOrEmpty
+                [int]$entry.Id | Should -BeGreaterThan 0
+                $entry.Severity | Should -BeIn @('Critical', 'Warning', 'Info')
+                $entry.Meaning | Should -Not -BeNullOrEmpty
+                @($entry.Fixes).Count | Should -BeGreaterThan 0
+                $entry.Keys | Should -Contain 'Source'
             }
         }
 

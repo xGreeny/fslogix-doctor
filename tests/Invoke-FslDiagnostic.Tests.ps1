@@ -28,12 +28,15 @@ Describe 'Invoke-FslDiagnostic' {
                 [pscustomobject]@{ ComputerName = 'HOST'; EventId = 26; Count = 4; Level = 'Fehler'; LevelValue = 2; Meaning = 'Attach failure'; Recommendation = 'Check storage'; FirstSeen = (Get-Date).AddHours(-3); LastSeen = Get-Date; SampleMessage = 'sample' }
             )
         }
+        # Context events come from the real Application/System logs of whatever
+        # machine runs the tests - always mock them for determinism.
+        Mock Get-FslContextEvent -ModuleName FSLogixDoctor { @() }
     }
 
     It 'aggregates findings from every category' {
         $findings = @(Invoke-FslDiagnostic)
         ($findings | Select-Object -ExpandProperty Category -Unique) | Sort-Object |
-            Should -Be @('Configuration', 'EventLog', 'LogFile', 'SessionState')
+            Should -Be @('Configuration', 'ContextEvents', 'EventLog', 'LogFile', 'SessionState')
     }
 
     It 'converts unhealthy sessions into findings' {
@@ -324,6 +327,63 @@ Describe 'Invoke-FslDiagnostic' {
             $summary.ExitCode | Should -Be 0
             $summary.CriticalCount | Should -Be 0
             $summary.WarningCount | Should -Be 0
+        }
+    }
+
+    Context 'context events from surrounding Windows logs' {
+
+        It 'correlates a temp-profile event with FSLogix attach trouble' {
+            Mock Get-FslContextEvent -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; Key = 'ProfSvc:1511'; Label = 'User Profile Service'; Channel = 'Application'; Provider = 'Microsoft-Windows-User Profiles Service'; EventId = 1511; Count = 1; Severity = 'Critical'; Meaning = 'Temp profile logon.'; Recommendation = 'fix it'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'temp'; TopMessages = @('1x Windows cannot find the local profile') }
+                )
+            }
+            # Default mocks include a Critical log finding -> attach trouble present.
+            $findings = @(Invoke-FslDiagnostic)
+            $context = @($findings | Where-Object Category -eq 'ContextEvents')
+            $context.Count | Should -Be 1
+            $context[0].Check | Should -Be 'User Profile Service event 1511'
+            $context[0].Severity | Should -Be 'Critical'
+            $context[0].Message | Should -Match 'visible symptom'
+        }
+
+        It 'flags a temp-profile event without FSLogix attach trouble as possibly unrelated' {
+            Mock Get-FslContextEvent -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; Key = 'ProfSvc:1511'; Label = 'User Profile Service'; Channel = 'Application'; Provider = 'Microsoft-Windows-User Profiles Service'; EventId = 1511; Count = 1; Severity = 'Critical'; Meaning = 'Temp profile logon.'; Recommendation = 'fix it'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'temp'; TopMessages = @('1x Windows cannot find the local profile') }
+                )
+            }
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true })
+            }
+            Mock Get-FslLogError -ModuleName FSLogixDoctor { @() }
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor { @() }
+            $findings = @(Invoke-FslDiagnostic)
+            $context = @($findings | Where-Object Category -eq 'ContextEvents')
+            $context[0].Message | Should -Match 'non-FSLogix'
+        }
+
+        It 'marks NTFS corruption as independent confirmation when volume-error findings exist' {
+            Mock Get-FslLogError -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x0000A418'; Message = 'SupportedSize ExtendedStatus: (ErrCode:42008 -> Cannot shrink a partition containing a volume with errors.)'; Benign = $false; File = 'C:\logs\Profile-1.log'; LineNumber = 10 }
+                )
+            }
+            Mock Get-FslContextEvent -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; Key = 'Ntfs:55'; Label = 'NTFS'; Channel = 'System'; Provider = 'Ntfs'; EventId = 55; Count = 1; Severity = 'Warning'; Meaning = 'Filesystem corrupt.'; Recommendation = 'chkdsk'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'corrupt'; TopMessages = @('1x The file system structure on the disk is corrupt') }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $context = @($findings | Where-Object { $_.Category -eq 'ContextEvents' -and $_.Check -eq 'NTFS event 55' })
+            $context[0].Message | Should -Match 'Independent confirmation'
+        }
+
+        It 'emits a Pass finding when the surrounding logs are quiet' {
+            $findings = @(Invoke-FslDiagnostic)
+            $quiet = @($findings | Where-Object { $_.Category -eq 'ContextEvents' -and $_.Severity -eq 'Pass' })
+            $quiet.Count | Should -Be 1
+            $quiet[0].Message | Should -Match 'surrounding Windows logs'
         }
     }
 

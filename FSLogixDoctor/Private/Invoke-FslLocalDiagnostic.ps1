@@ -193,5 +193,37 @@ function Invoke-FslLocalDiagnostic {
                     -Message ("No warning or error events in the FSLogix channels in the last {0} hours." -f $Hours)))
     }
 
+    # 6: Curated context events from the surrounding Windows logs (User Profile
+    # Service, NTFS, disk) - and correlate them with the FSLogix findings above
+    # so symptom and cause land in one place instead of two log worlds.
+    Write-Verbose 'Checking the surrounding Windows event logs...'
+    $contextEvents = @(Get-FslContextEvent -After $after -WarningAction SilentlyContinue)
+    $hasAttachTrouble = ($unhealthy.Count -gt 0 -or
+        @($findings | Where-Object { $_.Category -in @('LogFile', 'EventLog') -and $_.Severity -in @('Critical', 'Warning') }).Count -gt 0)
+    $hasVolumeTrouble = (@($findings | Where-Object { $_.Check -like '*0x0000A418*' -or $_.Check -eq 'Event 33' }).Count -gt 0)
+
+    foreach ($contextEvent in $contextEvents) {
+        $message = ("{0}x event {1} in the {2} log: {3}" -f $contextEvent.Count, $contextEvent.EventId, $contextEvent.Channel, $contextEvent.Meaning)
+        if ($contextEvent.EventId -in @(1511, 1515) -and $contextEvent.Key -like 'ProfSvc*') {
+            if ($hasAttachTrouble) {
+                $message += ' Correlates with the FSLogix findings in this report: the temporary profile is the visible symptom, the attach failure above is the likely cause.'
+            }
+            else {
+                $message += ' No matching FSLogix attach failure in this window - the temp profile may stem from a non-FSLogix local profile problem.'
+            }
+        }
+        elseif ($contextEvent.Key -in @('Ntfs:55', 'Disk:7') -and $hasVolumeTrouble) {
+            $message += ' Independent confirmation of the container volume-error findings (ErrCode 42008 / event 33) in this report.'
+        }
+        $findings.Add((New-FslFinding -Category ContextEvents -Check ("{0} event {1}" -f $contextEvent.Label, $contextEvent.EventId) -Severity $contextEvent.Severity -Target $contextEvent.ComputerName `
+                    -Message $message `
+                    -Evidence ("Last seen {0} in {1}. Messages: {2}" -f $contextEvent.LastSeen, $contextEvent.Channel, (@($contextEvent.TopMessages) -join ' | ')) `
+                    -Recommendation $contextEvent.Recommendation))
+    }
+    if ($contextEvents.Count -eq 0) {
+        $findings.Add((New-FslFinding -Category ContextEvents -Check 'Context events' -Severity Pass `
+                    -Message ("No profile-related events in the surrounding Windows logs (User Profile Service, NTFS, disk) in the last {0} hours." -f $Hours)))
+    }
+
     $findings
 }
