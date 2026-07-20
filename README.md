@@ -68,7 +68,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 | Function | What it answers | Run on |
 |---|---|---|
-| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - all checks below, one command, optional HTML report; fleet mode via `-ComputerName`, monitoring output via `-AsSummary`/`-AsJson` | session host or admin box |
+| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - all checks below, one command, optional HTML report; fleet mode via `-ComputerName` (incl. config-drift detection), monitoring output via `-AsSummary`/`-AsJson`, run history and new/persisting/resolved diffs via `-HistoryPath`, store capacity checks via `-ProfileStorePath` | session host or admin box |
 | `Get-FslErrorCode` | "What does `0x00000020` mean and how do I fix it?" | anywhere |
 | `Get-FslSessionState` | "Why did this user get a temp profile?" - translated Status/Reason/Error per session | session host |
 | `Get-FslLogError` | Structured WARN/ERROR entries from the FSLogix text logs, codes extracted and normalized (incl. HRESULT form) | session host |
@@ -79,6 +79,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 | `Get-FslLockedProfile` | "Who is holding this VHDX open?" - stale SMB handles behind 'profile in use' | file server |
 | `New-FslReport` | Any findings → one self-contained HTML report | anywhere |
 | `Remove-FslOrphanedOst` | Cleanup companion to event 29: deletes orphaned Outlook OST caches, WhatIf-first | session host / mounted container |
+| `Remove-FslOrphanedDisk` | Cleanup companion to `Get-FslOrphanedDisk`: deletes or archives confirmed-orphaned containers, WhatIf-first | anywhere with share access |
 
 ## Design principles
 
@@ -92,7 +93,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 168 Pester tests against
+- **Tested like software, not like a script dump.** 182 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.

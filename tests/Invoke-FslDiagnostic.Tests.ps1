@@ -327,6 +327,122 @@ Describe 'Invoke-FslDiagnostic' {
         }
     }
 
+    Context 'run history' {
+
+        It 'diffs against the previous run: persisting annotated, resolved resurfaced' {
+            $historyDir = Join-Path $TestDrive 'history'
+            $first = @(Invoke-FslDiagnostic -HistoryPath $historyDir)
+            @(Get-ChildItem $historyDir -Filter 'run-*.json').Count | Should -Be 1
+            # First run ever: nothing can honestly be called New or Persisting.
+            @($first | Where-Object { $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus }) | Should -BeNullOrEmpty
+
+            # Second run: the log errors are gone.
+            Mock Get-FslLogError -ModuleName FSLogixDoctor { @() }
+            $second = @(Invoke-FslDiagnostic -HistoryPath $historyDir)
+            @(Get-ChildItem $historyDir -Filter 'run-*.json').Count | Should -Be 2
+
+            $resolved = @($second | Where-Object { $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'Resolved' })
+            $resolved.Count | Should -BeGreaterThan 0
+            $resolved[0].Severity | Should -Be 'Info'
+            $resolved[0].Message | Should -Match 'Resolved since the last run'
+
+            $persisting = @($second | Where-Object { $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'Persisting' })
+            $persisting.Count | Should -BeGreaterThan 0
+        }
+
+        It 'annotates persisting alert-worthy findings with the consecutive-run count' {
+            $historyDir = Join-Path $TestDrive 'history-persist'
+            Invoke-FslDiagnostic -HistoryPath $historyDir | Out-Null
+            $second = @(Invoke-FslDiagnostic -HistoryPath $historyDir)
+            $logFinding = @($second | Where-Object Check -like '*0x00000020*')
+            $logFinding[0].Message | Should -Match 'seen in 2 consecutive runs'
+        }
+
+        It 'exposes change counts in the summary' {
+            $historyDir = Join-Path $TestDrive 'history-summary'
+            Invoke-FslDiagnostic -HistoryPath $historyDir | Out-Null
+            Mock Get-FslLogError -ModuleName FSLogixDoctor { @() }
+            $summary = Invoke-FslDiagnostic -HistoryPath $historyDir -AsSummary
+            $summary.ResolvedCount | Should -BeGreaterThan 0
+            $summary.NewCount | Should -Be 0
+        }
+    }
+
+    Context 'profile store scan' {
+
+        BeforeAll {
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Folder = '\\fs\share\r.lukic_S-1'; Disk = '\\fs\share\r.lukic_S-1\Profile_r.lukic.VHDX'; UserName = 'r.lukic'; SizeGB = 48.9; PercentOfMax = 100; LastModified = (Get-Date).AddDays(-1); DiskCount = 1; Anomaly = $null }
+                    [pscustomobject]@{ Folder = '\\fs\share\f.rij_S-2'; Disk = '\\fs\share\f.rij_S-2\Profile_f.rij.VHDX'; UserName = 'f.rij'; SizeGB = 43.5; PercentOfMax = 89; LastModified = (Get-Date).AddDays(-1); DiskCount = 1; Anomaly = $null }
+                    [pscustomobject]@{ Folder = '\\fs\share\old_x_S-3'; Disk = '\\fs\share\old_x_S-3\a.VHDX'; UserName = ''; SizeGB = 17.4; PercentOfMax = 35; LastModified = (Get-Date).AddDays(-200); DiskCount = 2; Anomaly = 'Folder contains 2 disks - possible leftover from a re-created profile.' }
+                    [pscustomobject]@{ Folder = '\\fs\share\old_x_S-3'; Disk = '\\fs\share\old_x_S-3\b.VHDX'; UserName = ''; SizeGB = 17.6; PercentOfMax = 36; LastModified = (Get-Date).AddDays(-201); DiskCount = 2; Anomaly = 'Folder contains 2 disks - possible leftover from a re-created profile.' }
+                    [pscustomobject]@{ Folder = '\\fs\share\ok_S-4'; Disk = '\\fs\share\ok_S-4\Profile_ok.VHDX'; UserName = 'ok.user'; SizeGB = 10; PercentOfMax = 20; LastModified = (Get-Date); DiskCount = 1; Anomaly = $null }
+                )
+            }
+        }
+
+        It 'flags container capacity with thresholds 85 (Warning) and 95 (Critical)' {
+            $findings = @(Invoke-FslDiagnostic -ProfileStorePath '\\fs\share')
+            $capacity = @($findings | Where-Object Check -eq 'Container capacity')
+            $capacity.Count | Should -Be 2
+            @($capacity | Where-Object Target -eq 'r.lukic')[0].Severity | Should -Be 'Critical'
+            @($capacity | Where-Object Target -eq 'f.rij')[0].Severity | Should -Be 'Warning'
+        }
+
+        It 'reports structural anomalies once per folder' {
+            $findings = @(Invoke-FslDiagnostic -ProfileStorePath '\\fs\share')
+            $anomalies = @($findings | Where-Object Check -eq 'Profile store anomaly')
+            $anomalies.Count | Should -Be 1
+            $anomalies[0].Evidence | Should -Match '35 GB across 2 disk'
+        }
+
+        It 'reports a scan failure as a Warning finding instead of failing' {
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor { throw 'access denied' }
+            $findings = @(Invoke-FslDiagnostic -ProfileStorePath '\\fs\share')
+            $scanFinding = @($findings | Where-Object Check -eq 'Profile store scan')
+            $scanFinding.Count | Should -Be 1
+            $scanFinding[0].Severity | Should -Be 'Warning'
+            $scanFinding[0].Message | Should -Match 'access denied'
+        }
+    }
+
+    Context 'fleet configuration drift' {
+
+        It 'flags registry values that differ across hosts' {
+            Mock Invoke-Command -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'Profiles enabled'; Severity = 'Pass'; Target = ([string]$ComputerName); Message = 'ok'; Evidence = ''; Recommendation = ''; HelpUri = '' })
+            }
+            Mock Invoke-Command -ModuleName FSLogixDoctor -ParameterFilter { $ScriptBlock.ToString() -match 'FSLogix\\Profiles' } {
+                if ([string]$ComputerName -eq 'AVD-0') {
+                    [pscustomobject]@{ Enabled = 1; SizeInMBs = 30720; VolumeType = 'vhdx' }
+                }
+                else {
+                    [pscustomobject]@{ Enabled = 1; SizeInMBs = 51200; VolumeType = 'vhdx' }
+                }
+            }
+            $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-0', 'AVD-1')
+            $drift = @($findings | Where-Object { $_.Check -eq 'Configuration drift' -and $_.Severity -eq 'Warning' })
+            $drift.Count | Should -Be 1
+            $drift[0].Message | Should -Match 'SizeInMBs'
+            $drift[0].Evidence | Should -Match 'AVD-0=30720'
+            $drift[0].Evidence | Should -Match 'AVD-1=51200'
+        }
+
+        It 'reports an aligned fleet with a Pass finding' {
+            Mock Invoke-Command -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'Profiles enabled'; Severity = 'Pass'; Target = ([string]$ComputerName); Message = 'ok'; Evidence = ''; Recommendation = ''; HelpUri = '' })
+            }
+            Mock Invoke-Command -ModuleName FSLogixDoctor -ParameterFilter { $ScriptBlock.ToString() -match 'FSLogix\\Profiles' } {
+                [pscustomobject]@{ Enabled = 1; SizeInMBs = 51200; VolumeType = 'vhdx' }
+            }
+            $findings = @(Invoke-FslDiagnostic -ComputerName 'AVD-0', 'AVD-1')
+            $drift = @($findings | Where-Object Check -eq 'Configuration drift')
+            $drift.Count | Should -Be 1
+            $drift[0].Severity | Should -Be 'Pass'
+        }
+    }
+
     It 'does not escalate WARN-only curated codes to Critical' {
         Mock Get-FslLogError -ModuleName FSLogixDoctor {
             @(

@@ -21,6 +21,7 @@ Describe 'FSLogixDoctor module' {
             'Get-FslSessionState'
             'Invoke-FslDiagnostic'
             'New-FslReport'
+            'Remove-FslOrphanedDisk'
             'Remove-FslOrphanedOst'
             'Test-FslConfiguration'
         )
@@ -43,6 +44,7 @@ Describe 'FSLogixDoctor module' {
         'Get-FslSessionState'
         'Invoke-FslDiagnostic'
         'New-FslReport'
+        'Remove-FslOrphanedDisk'
         'Remove-FslOrphanedOst'
         'Test-FslConfiguration'
     ) {

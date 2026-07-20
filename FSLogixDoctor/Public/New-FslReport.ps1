@@ -152,6 +152,14 @@ function New-FslReport {
         $actionLabel = 'action item'
         if ($actionable.Count -ne 1) { $actionLabel = 'action items' }
         $verdictSub = ('{0} {1} &middot; {2} &middot; {3} findings total' -f $actionable.Count, $actionLabel, $hostLabel, $all.Count)
+        # When run history is active, the findings carry a ChangeStatus - put
+        # the diff verdict where the eye lands first.
+        $changeAware = @($all | Where-Object { $null -ne $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus })
+        if ($changeAware.Count -gt 0) {
+            $newCount = @($changeAware | Where-Object { $_.ChangeStatus -eq 'New' -and $_.Severity -in @('Critical', 'Warning') }).Count
+            $resolvedCount = @($changeAware | Where-Object ChangeStatus -eq 'Resolved').Count
+            $verdictSub += (' &middot; since last run: {0} new, {1} resolved' -f $newCount, $resolvedCount)
+        }
 
         # Summary tiles: only non-zero Critical/Warning tiles carry a color
         # accent; a zero renders muted so nothing shouts about a non-problem.

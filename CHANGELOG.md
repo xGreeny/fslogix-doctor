@@ -6,6 +6,33 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-20
+
+### Added
+
+- **Run history and diff** (`Invoke-FslDiagnostic -HistoryPath`, opt-in so
+  the module stays read-only by default): every run is persisted as JSON and
+  diffed against the previous run of the same scope. Findings carry a
+  `ChangeStatus` (New/Persisting/Resolved), alert-worthy messages are
+  annotated ('New since the last run', 'Persisting - seen in N consecutive
+  runs'), vanished Critical/Warning findings resurface as 'Resolved' Info
+  findings, the summary gains `NewCount`/`ResolvedCount`, and the report
+  verdict shows 'since last run: N new, M resolved'. The daily run now
+  answers 'what is NEWLY broken?' instead of 'what is broken?'.
+- **Profile store scan** (`-IncludeProfileStore` / `-ProfileStorePath`):
+  containers at >=85% of their maximum become Warnings, >=95% Critical -
+  FSLogix's own event 33 only fires below 200 MB free, which is too late.
+  Structural anomalies (leftover/multi-disk folders) become findings with
+  cleanup guidance. Runs once from the coordinator in fleet mode.
+- **`Remove-FslOrphanedDisk`**: second explicit -Fix companion. Acts only on
+  disks Get-FslOrphanedDisk classified as 'Orphaned' (never Disabled or
+  Unknown), supports -ArchivePath (move instead of delete), removes emptied
+  container folders, WhatIf-first with ConfirmImpact High.
+- **Fleet configuration drift**: fleet runs compare the 12 core FSLogix
+  registry values across hosts and emit one Warning per drifting value with
+  per-host evidence - two hosts with different SizeInMBs, each unremarkable
+  on its own, only surface here.
+
 ## [1.5.1] - 2026-07-20
 
 ### Changed

@@ -45,6 +45,22 @@ function Invoke-FslDiagnostic {
     .PARAMETER AsJson
         Like -AsSummary, but returns the summary serialized as JSON - made for
         RMM/monitoring sensors (PRTG, Zabbix, scheduled tasks).
+    .PARAMETER HistoryPath
+        Opt-in run history (the module stays read-only unless you ask): each run
+        is written as JSON to this folder and diffed against the previous run of
+        the same scope. Findings get a ChangeStatus (New/Persisting/Resolved),
+        alert-worthy messages are annotated ('New since the last run', 'seen in
+        N consecutive runs'), vanished Critical/Warning findings come back as
+        'Resolved' Info findings, and the summary/report gain change counts.
+    .PARAMETER IncludeProfileStore
+        Also scan the profile store: containers at >=85% of their maximum size
+        become Warnings (>=95% Critical - FSLogix's own event 33 only fires
+        below 200 MB free), and structural anomalies (leftover/multi-disk
+        folders) become findings. Uses the local VHDLocations unless
+        -ProfileStorePath is given. In fleet mode the scan runs once from the
+        coordinating machine, not per host.
+    .PARAMETER ProfileStorePath
+        Profile share path(s) for the store scan; implies -IncludeProfileStore.
     .EXAMPLE
         Invoke-FslDiagnostic
 
@@ -59,6 +75,11 @@ function Invoke-FslDiagnostic {
         $r = Invoke-FslDiagnostic -AsSummary; exit $r.ExitCode
 
         Monitoring wrapper: exit 0 = healthy, 1 = warnings, 2 = critical.
+    .EXAMPLE
+        Invoke-FslDiagnostic -HistoryPath C:\ProgramData\FSLogixDoctor\History -ProfileStorePath \\fs01\fslogix$
+
+        Daily driver: store capacity included, and every finding says whether
+        it is new, persisting or resolved compared to yesterday.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -78,7 +99,13 @@ function Invoke-FslDiagnostic {
 
         [switch]$AsSummary,
 
-        [switch]$AsJson
+        [switch]$AsJson,
+
+        [string]$HistoryPath,
+
+        [switch]$IncludeProfileStore,
+
+        [string[]]$ProfileStorePath = @()
     )
 
     $findings = New-Object System.Collections.Generic.List[object]
@@ -120,11 +147,35 @@ function Invoke-FslDiagnostic {
         $merged = @(Merge-FslFleetFinding -Finding $findings.ToArray())
         $findings = New-Object System.Collections.Generic.List[object]
         foreach ($mergedFinding in $merged) { $findings.Add($mergedFinding) }
+
+        # Fleet mode compares findings; two hosts with different raw settings,
+        # each unremarkable on its own, only surface via the drift check.
+        if (@($ComputerName).Count -gt 1) {
+            Write-Verbose 'Comparing core FSLogix settings across the fleet...'
+            foreach ($driftFinding in @(Get-FslFleetConfigDrift -ComputerName $ComputerName)) { $findings.Add($driftFinding) }
+        }
     }
     else {
         foreach ($localFinding in @(Invoke-FslLocalDiagnostic -Hours $Hours -LogPath $LogPath -IncludeWarnings:$IncludeWarnings)) {
             $findings.Add($localFinding)
         }
+    }
+
+    # Opt-in profile store scan - runs once (on the coordinating machine in
+    # fleet mode), not per host.
+    if ($IncludeProfileStore -or @($ProfileStorePath | Where-Object { $_ }).Count -gt 0) {
+        Write-Verbose 'Scanning the profile store...'
+        foreach ($storeFinding in @(Get-FslProfileStoreFinding -Path $ProfileStorePath)) { $findings.Add($storeFinding) }
+    }
+
+    # Opt-in run history: tag New/Persisting, resurface vanished alerts as
+    # Resolved, persist this run for the next diff.
+    if ($HistoryPath) {
+        $historyScope = $env:COMPUTERNAME
+        if (@($ComputerName).Count -gt 0) { $historyScope = ((@($ComputerName) | Sort-Object) -join ',') }
+        $tracked = @(Update-FslRunHistory -Finding $findings.ToArray() -HistoryPath $HistoryPath -Scope $historyScope)
+        $findings = New-Object System.Collections.Generic.List[object]
+        foreach ($trackedFinding in $tracked) { $findings.Add($trackedFinding) }
     }
 
     # Output: report, summary/JSON and/or pipeline.
@@ -163,6 +214,8 @@ function Invoke-FslDiagnostic {
             PassCount     = $counts['Pass']
             WorstSeverity = $worst
             ExitCode      = $exitCode
+            NewCount      = @($sorted | Where-Object { $null -ne $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'New' -and $_.Severity -in @('Critical', 'Warning') }).Count
+            ResolvedCount = @($sorted | Where-Object { $null -ne $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'Resolved' }).Count
             Findings      = $sorted
         }
         if ($AsJson) {
