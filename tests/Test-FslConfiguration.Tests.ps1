@@ -29,6 +29,11 @@ BeforeAll {
 
 Describe 'Test-FslConfiguration' {
 
+    BeforeAll {
+        # Fixture snapshots use fake hosts; never let the real TCP probe run.
+        Mock Test-FslSmbPort -ModuleName FSLogixDoctor { $false }
+    }
+
     It 'produces no Critical or Warning findings for a healthy snapshot' {
         $findings = @(Test-FslConfiguration -ConfigSnapshot (New-Snapshot))
         @($findings | Where-Object Severity -in @('Critical', 'Warning')) | Should -BeNullOrEmpty
@@ -79,6 +84,54 @@ Describe 'Test-FslConfiguration' {
         $snapshot = New-Snapshot -Overrides @{ VhdLocationsOnline = @{ '\\lab-fs01\fslogix$' = $false } }
         $findings = @(Test-FslConfiguration -ConfigSnapshot $snapshot)
         @($findings | Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }).Count | Should -Be 1
+    }
+
+    Context 'unreachable share: network vs permission separation' {
+
+        It 'reports an open SMB port as a probable permissions issue' {
+            $snapshot = New-Snapshot -Overrides @{
+                VhdLocationsOnline = @{ '\\lab-fs01\fslogix$' = $false }
+                SmbPortOpen        = @{ '\\lab-fs01\fslogix$' = $true }
+            }
+            $finding = @(Test-FslConfiguration -ConfigSnapshot $snapshot) |
+                Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }
+            $finding.Evidence | Should -Match "TCP 445 to 'lab-fs01' is open"
+            $finding.Evidence | Should -Match 'missing share permissions'
+        }
+
+        It 'reports a closed SMB port as a network problem' {
+            $snapshot = New-Snapshot -Overrides @{
+                VhdLocationsOnline = @{ '\\lab-fs01\fslogix$' = $false }
+                SmbPortOpen        = @{ '\\lab-fs01\fslogix$' = $false }
+            }
+            $finding = @(Test-FslConfiguration -ConfigSnapshot $snapshot) |
+                Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }
+            $finding.Evidence | Should -Match 'NOT answering'
+            $finding.Evidence | Should -Match 'network/endpoint problem'
+        }
+
+        It 'gives Azure Files shares the RBAC-specific recommendation' {
+            $azurePath = '\\saprofiles01.file.core.windows.net\fslogixprofiles'
+            $snapshot = New-Snapshot -Overrides @{
+                VhdLocationsOnline = @{ $azurePath = $false }
+                SmbPortOpen        = @{ $azurePath = $true }
+            }
+            $snapshot.Profiles.VHDLocations = $azurePath
+            $snapshot.DefenderExclusions = @($azurePath)
+            $finding = @(Test-FslConfiguration -ConfigSnapshot $snapshot) |
+                Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }
+            $finding.Recommendation | Should -Match 'Storage File Data SMB Share Contributor'
+            $finding.HelpUri | Should -Match 'storage-files-identity-auth'
+        }
+
+        It 'omits the port verdict for local (non-UNC) locations' {
+            $snapshot = New-Snapshot -Overrides @{ VhdLocationsOnline = @{ 'D:\Profiles' = $false } }
+            $snapshot.Profiles.VHDLocations = 'D:\Profiles'
+            $snapshot.DefenderExclusions = @('D:\Profiles')
+            $finding = @(Test-FslConfiguration -ConfigSnapshot $snapshot) |
+                Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' }
+            $finding.Evidence | Should -Not -Match 'TCP 445'
+        }
     }
 
     It 'splits semicolon-delimited REG_SZ VHDLocations into individual paths' {

@@ -144,6 +144,48 @@ Describe 'Invoke-FslDiagnostic' {
             $eventFinding[0].Evidence | Should -Match 'Plus 68x known-benign noise'
         }
 
+        It 'downgrades an unreachable-share probe when sessions are attached and TCP 445 is open' {
+            Mock Test-FslConfiguration -ModuleName FSLogixDoctor {
+                [pscustomobject]@{
+                    PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'VHDLocations reachable'
+                    Severity = 'Critical'; Target = 'HOST'
+                    Message = "Profile location '\\sa.file.core.windows.net\prof' is NOT reachable from this host (as the probing user)."
+                    Evidence = "TCP 445 to 'sa.file.core.windows.net' is open - the endpoint answers, so this looks like missing share permissions for the probing account 'admin', not a network problem."
+                    Recommendation = 'rbac'; HelpUri = ''
+                }
+            }
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $probe = @($findings | Where-Object Check -eq 'VHDLocations reachable')
+            $probe[0].Severity | Should -Be 'Warning'
+            $probe[0].Message | Should -Match 'Downgraded from Critical: 1 session'
+        }
+
+        It 'keeps the unreachable-share probe Critical when TCP 445 is closed' {
+            Mock Test-FslConfiguration -ModuleName FSLogixDoctor {
+                [pscustomobject]@{
+                    PSTypeName = 'FSLogixDoctor.Finding'; Category = 'Configuration'; Check = 'VHDLocations reachable'
+                    Severity = 'Critical'; Target = 'HOST'
+                    Message = "Profile location '\\fs01\prof' is NOT reachable from this host (as the probing user)."
+                    Evidence = "TCP 445 to 'fs01' is NOT answering (blocked or offline) - this is a network/endpoint problem, not a permissions issue."
+                    Recommendation = 'network'; HelpUri = ''
+                }
+            }
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $probe = @($findings | Where-Object Check -eq 'VHDLocations reachable')
+            $probe[0].Severity | Should -Be 'Critical'
+            $probe[0].Message | Should -Not -Match 'Downgraded'
+        }
+
         It 'honors the curated severity override for housekeeping events' {
             Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
                 @(

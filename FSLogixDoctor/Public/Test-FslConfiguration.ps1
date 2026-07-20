@@ -118,14 +118,46 @@ function Test-FslConfiguration {
             if ($online) {
                 New-FslFinding -Category Configuration -Check 'VHDLocations reachable' -Severity Pass -Target $target `
                     -Message ("Profile location '{0}' is reachable." -f $location)
+                continue
             }
-            else {
-                New-FslFinding -Category Configuration -Check 'VHDLocations reachable' -Severity Critical -Target $target `
-                    -Message ("Profile location '{0}' is NOT reachable from this host (as the probing user)." -f $location) `
-                    -Evidence 'Note: the check runs in the current user context; the computer account or user may still have differing access.' `
-                    -Recommendation 'Verify DNS, SMB connectivity, share and NTFS permissions for the profile share.' `
-                    -HelpUri 'https://learn.microsoft.com/en-us/fslogix/how-to-configure-storage-permissions'
+
+            # Separate 'network path down' from 'the share denies the probing
+            # user': a share that denies THIS account still answers on TCP 445.
+            # Typical false-alarm scenario: Azure Files with identity-based auth,
+            # where only the AVD users hold the share-level RBAC role and the
+            # admin running the diagnostic cannot browse the share at all.
+            $shareHost = $null
+            if ($location -match '^\\\\(?<sharehost>[^\\]+)') { $shareHost = $Matches['sharehost'] }
+            $portOpen = $null
+            if ($shareHost) {
+                if ($ConfigSnapshot.SmbPortOpen -is [hashtable] -and $ConfigSnapshot.SmbPortOpen.ContainsKey($location)) {
+                    $portOpen = [bool]$ConfigSnapshot.SmbPortOpen[$location]
+                }
+                else {
+                    $portOpen = Test-FslSmbPort -ComputerName $shareHost
+                }
             }
+
+            $evidence = 'Note: the check runs in the current user context; the computer account or user may still have differing access.'
+            if ($portOpen -eq $true) {
+                $evidence = ("TCP 445 to '{0}' is open - the endpoint answers, so this looks like missing share permissions for the probing account '{1}', not a network problem. {2}" -f $shareHost, $env:USERNAME, $evidence)
+            }
+            elseif ($portOpen -eq $false) {
+                $evidence = ("TCP 445 to '{0}' is NOT answering (blocked or offline) - this is a network/endpoint problem, not a permissions issue. {1}" -f $shareHost, $evidence)
+            }
+
+            $recommendation = 'Verify DNS, SMB connectivity, share and NTFS permissions for the profile share.'
+            $reachHelpUri = 'https://learn.microsoft.com/en-us/fslogix/how-to-configure-storage-permissions'
+            if ($shareHost -like '*.file.core.windows.net') {
+                $recommendation = 'Azure Files: users need the ''Storage File Data SMB Share Contributor'' RBAC role on the storage account (admins ''Storage File Data SMB Share Elevated Contributor'' to browse), plus working identity-based auth (AD DS or Entra Kerberos) and NTFS ACLs. The probing account needs its own role assignment before this check can succeed.'
+                $reachHelpUri = 'https://learn.microsoft.com/en-us/azure/storage/files/storage-files-identity-auth-active-directory-enable'
+            }
+
+            New-FslFinding -Category Configuration -Check 'VHDLocations reachable' -Severity Critical -Target $target `
+                -Message ("Profile location '{0}' is NOT reachable from this host (as the probing user)." -f $location) `
+                -Evidence $evidence `
+                -Recommendation $recommendation `
+                -HelpUri $reachHelpUri
         }
     }
 

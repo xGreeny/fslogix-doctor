@@ -82,6 +82,18 @@ function Invoke-FslDiagnostic {
     $allSessionsHealthy = ($sessions.Count -gt 0 -and $unhealthy.Count -eq 0)
     $correlationNote = 'Downgraded from Critical: all recorded sessions attached cleanly, so no user impact is visible yet.'
 
+    # Same correlation for the share-reachability probe: sessions that are
+    # attached right now from the 'unreachable' share contradict an outage.
+    # Only applies when TCP 445 answered - a closed SMB port stays Critical
+    # because the attached sessions may predate a real network break.
+    if ($allSessionsHealthy) {
+        $probeFindings = @($findings | Where-Object { $_.Check -eq 'VHDLocations reachable' -and $_.Severity -eq 'Critical' -and $_.Evidence -like '*TCP 445*is open*' })
+        foreach ($probeFinding in $probeFindings) {
+            $probeFinding.Severity = 'Warning'
+            $probeFinding.Message += (" Downgraded from Critical: {0} session(s) are currently attached from this location and TCP 445 is open - the probing account likely lacks share permissions (typical for Azure Files identity-based auth), not an outage." -f $sessions.Count)
+        }
+    }
+
     # 4: Log file errors, grouped by error code.
     Write-Verbose ("Parsing FSLogix logs since {0}..." -f $after)
     $logParams = @{ Path = $LogPath; After = $after; WarningAction = 'SilentlyContinue' }

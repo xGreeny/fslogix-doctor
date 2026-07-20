@@ -6,6 +6,29 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-20
+
+### Added
+
+- Share-reachability check separates network from permissions: when the
+  probe fails, a TCP 445 test against the share host distinguishes 'endpoint
+  answers but denies the probing account' from 'network path down'
+  (new private helper `Test-FslSmbPort`; fixture snapshots can inject the
+  verdict via the `SmbPortOpen` key).
+- Azure Files awareness: for `*.file.core.windows.net` locations the
+  recommendation names the required RBAC roles (Storage File Data SMB Share
+  Contributor / Elevated Contributor) and links the identity-based-auth
+  how-to instead of the generic DNS/SMB advice.
+
+### Changed
+
+- `Invoke-FslDiagnostic` correlates the share probe with session state:
+  sessions currently attached from the 'unreachable' share plus an open TCP
+  445 downgrade the finding from Critical to Warning - the classic Azure
+  Files false alarm where only the AVD users hold the share-level RBAC role
+  and the diagnosing admin cannot browse. A closed SMB port stays Critical
+  even with attached sessions (they may predate a real network break).
+
 ## [1.2.0] - 2026-07-20
 
 ### Added
