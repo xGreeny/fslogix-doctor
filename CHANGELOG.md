@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-20
+
+### Changed
+
+- HTML report visual redesign on a validated palette: severity is now
+  encoded as shape glyph + label + color (never color alone - CVD- and
+  print-safe), Info renders neutral instead of blue so only findings that
+  need action carry color, zero-count tiles render muted, and warning/
+  critical rows carry an accent edge for scanning. Warm neutral surfaces
+  with an anchored dark header replace the blue-gray look, and the report
+  ships a native dark mode (follows the OS setting, deliberately stepped
+  values instead of an automatic invert). Still plain HTML/CSS, one file,
+  no JavaScript.
+
 ## [1.5.0] - 2026-07-20
 
 ### Added

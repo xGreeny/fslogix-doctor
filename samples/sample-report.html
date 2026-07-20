@@ -5,106 +5,142 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</title>
 <style>
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light dark;
+    --page: #f0efeb; --surface: #ffffff; --thead: #f7f6f3;
+    --header-bg: #1a1a19; --header-ink: #ffffff; --header-ink2: #c3c2b7;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --hairline: #e1e0d9; --ring: rgba(11,11,11,0.12);
+    --card-shadow: 0 1px 2px rgba(11,11,11,0.05);
+    --critical: #d03b3b; --warning: #fab219; --good: #0ca30c; --info: #898781;
+    --link: #256abf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d; --surface: #1a1a19; --thead: #201f1e;
+      --ink: #ffffff; --ink-2: #c3c2b7;
+      --hairline: #2c2c2a; --ring: rgba(255,255,255,0.10);
+      --card-shadow: none;
+      --link: #6da7ec;
+    }
+  }
   * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #1f2933; }
-  header { background: #102a43; color: #fff; padding: 24px 32px; }
-  header h1 { margin: 0 0 4px 0; font-size: 22px; }
-  header .meta { color: #9fb3c8; font-size: 13px; }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px 32px 48px; }
-  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; }
-  .tile { flex: 1 1 120px; background: #fff; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(16,42,67,.12); border-top: 4px solid #829ab1; }
-  .tile .num { font-size: 28px; font-weight: 600; }
-  .tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #627d98; }
-  .tile.critical { border-top-color: #c62828; } .tile.critical .num { color: #c62828; }
-  .tile.warning { border-top-color: #ef6c00; } .tile.warning .num { color: #ef6c00; }
-  .tile.info { border-top-color: #0277bd; } .tile.info .num { color: #0277bd; }
-  .tile.pass { border-top-color: #2e7d32; } .tile.pass .num { color: #2e7d32; }
-  .verdict { display: inline-block; margin: 12px 0 4px; padding: 6px 14px; border-radius: 999px; font-weight: 600; font-size: 14px; }
-  .verdict.pass { background: #e8f5e9; color: #2e7d32; }
-  .verdict.warning { background: #fff3e0; color: #ef6c00; }
-  .verdict.critical { background: #ffebee; color: #c62828; }
-  .hosts { margin: 6px 0 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .hostchip { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
-  .hostchip.critical { background: #ffebee; color: #c62828; }
-  .hostchip.warning { background: #fff3e0; color: #ef6c00; }
-  .hostchip.info { background: #e1f5fe; color: #0277bd; }
-  .hostchip.pass { background: #e8f5e9; color: #2e7d32; }
-  details.msg summary { cursor: pointer; margin-bottom: 4px; }
-  details.msg .msgfull { margin: 6px 0 4px; }
-  h2 { margin: 28px 0 10px; font-size: 17px; color: #102a43; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(16,42,67,.12); }
-  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #627d98; padding: 10px 14px; border-bottom: 2px solid #d9e2ec; }
-  td { padding: 10px 14px; border-bottom: 1px solid #e4ebf1; vertical-align: top; font-size: 14px; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; margin: 0; background: var(--page); color: var(--ink); }
+  header { background: var(--header-bg); border-bottom: 1px solid var(--hairline); }
+  header .inner { max-width: 1100px; margin: 0 auto; padding: 24px 32px 20px; }
+  header h1 { margin: 0 0 6px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; color: var(--header-ink); }
+  header .meta { color: var(--header-ink2); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 22px 32px 48px; }
+  .verdict { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 14px; flex-wrap: wrap; }
+  .verdict .headline { font-size: 16px; font-weight: 650; }
+  .verdict .sub { color: var(--muted); font-size: 13px; }
+  .sev { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+  .glyph { font-size: 11px; line-height: 1; }
+  .sev.critical .glyph { color: var(--critical); }
+  .sev.warning .glyph { color: var(--warning); }
+  .sev.info .glyph { color: var(--info); }
+  .sev.pass .glyph { color: var(--good); }
+  .hosts { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+  .hostchip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px;
+              background: var(--surface); border: 1px solid var(--ring); box-shadow: var(--card-shadow);
+              font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 6px; }
+  .tile { flex: 1 1 130px; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px;
+          padding: 14px 16px 12px; box-shadow: var(--card-shadow); }
+  .tile .num { font-size: 30px; font-weight: 650; line-height: 1.1; }
+  .tile .label { margin-top: 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+                 display: flex; align-items: center; gap: 6px; }
+  .tile.zero .num { color: var(--muted); font-weight: 600; }
+  .tile.critical.hot { border-left: 3px solid var(--critical); }
+  .tile.warning.hot { border-left: 3px solid var(--warning); }
+  h2 { margin: 30px 0 10px; font-size: 15px; font-weight: 650; letter-spacing: -0.005em; }
+  h2 .count { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 6px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--ring);
+          border-radius: 10px; overflow: hidden; box-shadow: var(--card-shadow); }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+       padding: 10px 14px 8px; border-bottom: 1px solid var(--hairline); font-weight: 600; background: var(--thead); }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; font-size: 13.5px; }
   tr:last-child td { border-bottom: none; }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .badge.critical { background: #ffebee; color: #c62828; }
-  .badge.warning { background: #fff3e0; color: #ef6c00; }
-  .badge.info { background: #e1f5fe; color: #0277bd; }
-  .badge.pass { background: #e8f5e9; color: #2e7d32; }
-  .msg { margin-bottom: 4px; }
-  .evidence { color: #627d98; font-size: 13px; margin-bottom: 4px; }
-  .fix { font-size: 13px; color: #334e68; }
-  .link { font-size: 13px; } .link a { color: #0277bd; }
-  footer { text-align: center; color: #829ab1; font-size: 12px; padding: 16px; }
+  tr.critical td:first-child { box-shadow: inset 3px 0 0 var(--critical); }
+  tr.warning td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+  td.sevcell { white-space: nowrap; width: 1%; }
+  td.sevcell .sev { font-size: 12.5px; color: var(--ink-2); }
+  td.check { font-weight: 600; width: 16%; }
+  td.target { color: var(--muted); font-size: 12.5px; width: 17%; }
+  .msg { margin-bottom: 5px; line-height: 1.45; }
+  .evidence { color: var(--muted); font-size: 12.5px; margin-bottom: 5px; line-height: 1.45; }
+  .fix { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+  .fix b { font-weight: 650; }
+  .link { font-size: 12.5px; margin-top: 3px; } .link a { color: var(--link); }
+  details.msg summary { cursor: pointer; line-height: 1.45; color: var(--ink); }
+  details.msg summary::marker { color: var(--muted); }
+  details.msg .msgfull { margin: 8px 0 4px; padding-left: 10px; border-left: 2px solid var(--hairline); line-height: 1.5; }
+  tr.pass .msg, tr.info .msg { color: var(--ink-2); }
+  footer { max-width: 1100px; margin: 0 auto; text-align: center; color: var(--muted); font-size: 12px; padding: 18px 32px 26px; }
+  footer a { color: var(--muted); }
 </style>
 </head>
 <body>
 <header>
-  <h1>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</h1>
-  <div class="meta">Generated 2026-07-20 14:03 by FSLogixDoctor v1.5.0 &middot; 4 hosts &middot; read-only diagnostics &middot; no telemetry</div>
+  <div class="inner">
+    <h1>FSLogix Health Report - LAB-SH-01 (sample, synthetic data)</h1>
+    <div class="meta">Generated 2026-07-20 14:30 by FSLogixDoctor v1.5.1 &middot; 4 hosts &middot; read-only diagnostics &middot; no telemetry</div>
+  </div>
 </header>
 <main>
-  <div class="verdict critical">Critical issues found</div>
-<div class="hosts"><span class="hostchip warning">\\lab-fs01\fslogix$</span><span class="hostchip critical">LAB-SH-01</span><span class="hostchip pass">LAB\jdoe</span><span class="hostchip critical">LAB\mmuster</span></div>
-  <div class="tiles">
-    <div class="tile critical"><div class="num">3</div><div class="label">Critical</div></div>
-    <div class="tile warning"><div class="num">3</div><div class="label">Warnings</div></div>
-    <div class="tile info"><div class="num">2</div><div class="label">Info</div></div>
-    <div class="tile pass"><div class="num">4</div><div class="label">Passed</div></div>
+  <div class="verdict">
+    <span class="sev critical headline"><span class="glyph">&#10005;</span>Critical issues found</span>
+    <span class="sub">6 action items &middot; 4 hosts &middot; 12 findings total</span>
   </div>
-<h2>Action items</h2>
+<div class="hosts"><span class="hostchip"><span class="sev warning"><span class="glyph">&#9650;</span></span>\\lab-fs01\fslogix$</span><span class="hostchip"><span class="sev critical"><span class="glyph">&#10005;</span></span>LAB-SH-01</span><span class="hostchip"><span class="sev pass"><span class="glyph">&#10003;</span></span>LAB\jdoe</span><span class="hostchip"><span class="sev critical"><span class="glyph">&#10005;</span></span>LAB\mmuster</span></div>
+  <div class="tiles">
+    <div class="tile critical hot"><div class="num">3</div><div class="label"><span class="sev critical"><span class="glyph">&#10005;</span></span>Critical</div></div>
+    <div class="tile warning hot"><div class="num">3</div><div class="label"><span class="sev warning"><span class="glyph">&#9650;</span></span>Warnings</div></div>
+    <div class="tile info"><div class="num">2</div><div class="label"><span class="sev info"><span class="glyph">&#9675;</span></span>Info</div></div>
+    <div class="tile pass"><div class="num">4</div><div class="label"><span class="sev pass"><span class="glyph">&#10003;</span></span>Passed</div></div>
+  </div>
+<h2>Action items<span class="count">6</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Action</th></tr></thead><tbody>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Event 26</td><td>LAB-SH-01</td><td>Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</td></tr>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Log errors (0x00000020)</td><td>LAB-SH-01</td><td>Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</td></tr>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Session attach state</td><td>LAB\mmuster</td><td>Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</td></tr>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Antivirus exclusions</td><td>LAB-SH-01</td><td>Add the Microsoft-recommended FSLogix exclusions.</td></tr>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Failure masking</td><td>LAB-SH-01</td><td>Set both to 1 in production so attach failures surface immediately instead of costing user data.</td></tr>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Orphaned containers</td><td>\\lab-fs01\fslogix$</td><td>Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Event 26</td><td class="target">LAB-SH-01</td><td>Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Log errors (0x00000020)</td><td class="target">LAB-SH-01</td><td>Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Session attach state</td><td class="target">LAB\mmuster</td><td>Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Antivirus exclusions</td><td class="target">LAB-SH-01</td><td>Add the Microsoft-recommended FSLogix exclusions.</td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Failure masking</td><td class="target">LAB-SH-01</td><td>Set both to 1 in production so attach failures surface immediately instead of costing user data.</td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Orphaned containers</td><td class="target">\\lab-fs01\fslogix$</td><td>Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</td></tr>
 </tbody></table>
 
-<h2>Configuration</h2>
+<h2>Configuration<span class="count">5 findings</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Antivirus exclusions</td><td>LAB-SH-01</td><td><div class="msg">Profile share paths are not in the Microsoft Defender path exclusions; on-access scanning of container disks degrades logon performance and can cause locks.</div><div class="evidence">Not excluded: \\lab-fs01\fslogix$</div><div class="fix">Fix: Add the Microsoft-recommended FSLogix exclusions.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/overview-prerequisites#configure-antivirus-file-and-folder-exclusions">Documentation</a></div></td></tr>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Failure masking</td><td>LAB-SH-01</td><td><div class="msg">PreventLoginWithFailure=0 and PreventLoginWithTempProfile=0: when the container attach fails, users silently work in a temp profile and changes are lost at logoff.</div><div class="evidence">Correlate with session Reason=7 (temp profile) to find affected users.</div><div class="fix">Fix: Set both to 1 in production so attach failures surface immediately instead of costing user data.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
-<tr class="info"><td><span class="badge info">Info</span></td><td>Log retention</td><td>LAB-SH-01</td><td><div class="msg">LogFileKeepingPeriod=2 days (default 2) - often too short to investigate incidents reported after a weekend.</div><div class="fix">Fix: Raise to at least 7-14 days (maximum 180).</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
-<tr class="pass"><td><span class="badge pass">Pass</span></td><td>Profiles enabled</td><td>LAB-SH-01</td><td><div class="msg">FSLogix profile containers are enabled.</div></td></tr>
-<tr class="pass"><td><span class="badge pass">Pass</span></td><td>VHDLocations reachable</td><td>LAB-SH-01</td><td><div class="msg">Profile location &#39;\\lab-fs01\fslogix$&#39; is reachable.</div></td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Antivirus exclusions</td><td class="target">LAB-SH-01</td><td><div class="msg">Profile share paths are not in the Microsoft Defender path exclusions; on-access scanning of container disks degrades logon performance and can cause locks.</div><div class="evidence">Not excluded: \\lab-fs01\fslogix$</div><div class="fix"><b>Fix:</b> Add the Microsoft-recommended FSLogix exclusions.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/overview-prerequisites#configure-antivirus-file-and-folder-exclusions">Documentation</a></div></td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Failure masking</td><td class="target">LAB-SH-01</td><td><div class="msg">PreventLoginWithFailure=0 and PreventLoginWithTempProfile=0: when the container attach fails, users silently work in a temp profile and changes are lost at logoff.</div><div class="evidence">Correlate with session Reason=7 (temp profile) to find affected users.</div><div class="fix"><b>Fix:</b> Set both to 1 in production so attach failures surface immediately instead of costing user data.</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
+<tr class="info"><td class="sevcell"><span class="sev info"><span class="glyph">&#9675;</span>Info</span></td><td class="check">Log retention</td><td class="target">LAB-SH-01</td><td><div class="msg">LogFileKeepingPeriod=2 days (default 2) - often too short to investigate incidents reported after a weekend.</div><div class="fix"><b>Fix:</b> Raise to at least 7-14 days (maximum 180).</div><div class="link"><a href="https://learn.microsoft.com/en-us/fslogix/reference-configuration-settings">Documentation</a></div></td></tr>
+<tr class="pass"><td class="sevcell"><span class="sev pass"><span class="glyph">&#10003;</span>Pass</span></td><td class="check">Profiles enabled</td><td class="target">LAB-SH-01</td><td><div class="msg">FSLogix profile containers are enabled.</div></td></tr>
+<tr class="pass"><td class="sevcell"><span class="sev pass"><span class="glyph">&#10003;</span>Pass</span></td><td class="check">VHDLocations reachable</td><td class="target">LAB-SH-01</td><td><div class="msg">Profile location &#39;\\lab-fs01\fslogix$&#39; is reachable.</div></td></tr>
 </tbody></table>
-<h2>Environment</h2>
+<h2>Environment<span class="count">2 findings</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="info"><td><span class="badge info">Info</span></td><td>FSLogix version</td><td>LAB-SH-01</td><td><div class="msg">Installed FSLogix version: 2.9.8884.27471.</div><div class="fix">Fix: Compare against the current release and known issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes</div></td></tr>
-<tr class="pass"><td><span class="badge pass">Pass</span></td><td>FSLogix service running</td><td>LAB-SH-01</td><td><div class="msg">The FSLogix service (frxsvc) is running.</div><div class="evidence">Version: 2.9.8884.27471</div></td></tr>
+<tr class="info"><td class="sevcell"><span class="sev info"><span class="glyph">&#9675;</span>Info</span></td><td class="check">FSLogix version</td><td class="target">LAB-SH-01</td><td><div class="msg">Installed FSLogix version: 2.9.8884.27471.</div><div class="fix"><b>Fix:</b> Compare against the current release and known issues: https://learn.microsoft.com/en-us/fslogix/overview-release-notes</div></td></tr>
+<tr class="pass"><td class="sevcell"><span class="sev pass"><span class="glyph">&#10003;</span>Pass</span></td><td class="check">FSLogix service running</td><td class="target">LAB-SH-01</td><td><div class="msg">The FSLogix service (frxsvc) is running.</div><div class="evidence">Version: 2.9.8884.27471</div></td></tr>
 </tbody></table>
-<h2>EventLog</h2>
+<h2>EventLog<span class="count">1 finding</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Event 26</td><td>LAB-SH-01</td><td><div class="msg">4x event 26: container attach failure reported by the FSLogix Apps service.</div><div class="evidence">Last seen 2026-07-12 07:41. Sample: Failed to attach VHD for user LAB\mmuster</div><div class="fix">Fix: Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</div></td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Event 26</td><td class="target">LAB-SH-01</td><td><div class="msg">4x event 26: container attach failure reported by the FSLogix Apps service.</div><div class="evidence">Last seen 2026-07-12 07:41. Sample: Failed to attach VHD for user LAB\mmuster</div><div class="fix"><b>Fix:</b> Event 26 carries multiple message types - read the message text and pair it with the Status/Reason codes from Get-FslSessionState.</div></td></tr>
 </tbody></table>
-<h2>LogFile</h2>
+<h2>LogFile<span class="count">1 finding</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Log errors (0x00000020)</td><td>LAB-SH-01</td><td><div class="msg">7x in the last 24h: [0x00000020] ERROR_SHARING_VIOLATION - the container is already open elsewhere.</div><div class="evidence">Sample: Failed to open virtual disk (The process cannot access the file because it is being used by another process.) (C:\ProgramData\FSLogix\Logs\Profile\Profile-20260712.log:214)</div><div class="fix">Fix: Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</div></td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Log errors (0x00000020)</td><td class="target">LAB-SH-01</td><td><div class="msg">7x in the last 24h: [0x00000020] ERROR_SHARING_VIOLATION - the container is already open elsewhere.</div><div class="evidence">Sample: Failed to open virtual disk (The process cannot access the file because it is being used by another process.) (C:\ProgramData\FSLogix\Logs\Profile\Profile-20260712.log:214)</div><div class="fix"><b>Fix:</b> Sign the user out everywhere or release the stale handle (Close-SmbOpenFile after verification), then retry.</div></td></tr>
 </tbody></table>
-<h2>ProfileStore</h2>
+<h2>ProfileStore<span class="count">1 finding</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="warning"><td><span class="badge warning">Warning</span></td><td>Orphaned containers</td><td>\\lab-fs01\fslogix$</td><td><div class="msg">3 container disks belong to deleted or disabled accounts - 41.5 GB reclaimable.</div><div class="evidence">Largest: Profile_tmuellerx.vhdx (18.2 GB, last used 214 days ago).</div><div class="fix">Fix: Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</div></td></tr>
+<tr class="warning"><td class="sevcell"><span class="sev warning"><span class="glyph">&#9650;</span>Warning</span></td><td class="check">Orphaned containers</td><td class="target">\\lab-fs01\fslogix$</td><td><div class="msg">3 container disks belong to deleted or disabled accounts - 41.5 GB reclaimable.</div><div class="evidence">Largest: Profile_tmuellerx.vhdx (18.2 GB, last used 214 days ago).</div><div class="fix"><b>Fix:</b> Review with Get-FslOrphanedDisk, archive if policy requires, then delete deliberately - the tool never deletes on its own.</div></td></tr>
 </tbody></table>
-<h2>SessionState</h2>
+<h2>SessionState<span class="count">2 findings</span></h2>
 <table><thead><tr><th>Severity</th><th>Check</th><th>Target</th><th>Details</th></tr></thead><tbody>
-<tr class="critical"><td><span class="badge critical">Critical</span></td><td>Session attach state</td><td>LAB\mmuster</td><td><div class="msg">Last attach did not complete cleanly: Status=12 (Can&#39;t attach to virtual disk), Reason=0 (The container is attached).</div><div class="evidence">Error: 32 - The profile disk is open in another session or process (sharing violation): the classic &quot;profile already in use&quot;.</div><div class="fix">Fix: Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</div></td></tr>
-<tr class="pass"><td><span class="badge pass">Pass</span></td><td>Session attach state</td><td>LAB\jdoe</td><td><div class="msg">Attached cleanly: Status=0 (Success), Reason=0 (The container is attached).</div></td></tr>
+<tr class="critical"><td class="sevcell"><span class="sev critical"><span class="glyph">&#10005;</span>Critical</span></td><td class="check">Session attach state</td><td class="target">LAB\mmuster</td><td><div class="msg">Last attach did not complete cleanly: Status=12 (Can&#39;t attach to virtual disk), Reason=0 (The container is attached).</div><div class="evidence">Error: 32 - The profile disk is open in another session or process (sharing violation): the classic &quot;profile already in use&quot;.</div><div class="fix"><b>Fix:</b> Correlate with Get-FslLockedProfile on the file server: a stale SMB handle from LAB-SH-02 is the most likely holder.</div></td></tr>
+<tr class="pass"><td class="sevcell"><span class="sev pass"><span class="glyph">&#10003;</span>Pass</span></td><td class="check">Session attach state</td><td class="target">LAB\jdoe</td><td><div class="msg">Attached cleanly: Status=0 (Success), Reason=0 (The container is attached).</div></td></tr>
 </tbody></table>
 
 </main>
-<footer>FSLogixDoctor &middot; https://github.com/xGreeny/fslogix-doctor</footer>
+<footer>FSLogixDoctor &middot; <a href="https://github.com/xGreeny/fslogix-doctor">github.com/xGreeny/fslogix-doctor</a></footer>
 </body>
 </html>

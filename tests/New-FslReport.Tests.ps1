@@ -43,8 +43,10 @@ Describe 'New-FslReport' {
         )
         $findings | New-FslReport -Path $path | Out-Null
         $html = Get-Content $path -Raw
-        $html | Should -Match '(?s)<div class="tile critical"><div class="num">2</div>'
-        $html | Should -Match '(?s)<div class="tile warning"><div class="num">1</div>'
+        $html | Should -Match '(?s)<div class="tile critical hot"><div class="num">2</div>'
+        $html | Should -Match '(?s)<div class="tile warning hot"><div class="num">1</div>'
+        # Zero counts render muted, never with a color accent.
+        $html | Should -Match '(?s)<div class="tile info zero"><div class="num">0</div>'
     }
 
     It 'shows the Critical verdict when critical findings exist' {
@@ -74,8 +76,8 @@ Describe 'New-FslReport' {
             New-TestFinding -Category 'EventLog'
         ) | New-FslReport -Path $path | Out-Null
         $html = Get-Content $path -Raw
-        $html | Should -Match '<h2>Configuration</h2>'
-        $html | Should -Match '<h2>EventLog</h2>'
+        $html | Should -Match '<h2>Configuration<span class="count">'
+        $html | Should -Match '<h2>EventLog<span class="count">'
     }
 
     It 'honors -WhatIf without writing a file' {
@@ -102,8 +104,8 @@ Describe 'New-FslReport' {
             $findings | New-FslReport -Path $path | Out-Null
             $html = Get-Content $path -Raw
             $html | Should -Match '<title>FSLogix Fleet Report - 2 hosts</title>'
-            $html | Should -Match 'hostchip warning">LAB-SH-01'
-            $html | Should -Match 'hostchip pass">LAB-SH-02'
+            $html | Should -Match 'hostchip"><span class="sev warning"><span class="glyph">[^<]+</span></span>LAB-SH-01'
+            $html | Should -Match 'hostchip"><span class="sev pass"><span class="glyph">[^<]+</span></span>LAB-SH-02'
         }
 
         It 'omits host chips for single-host reports' {
@@ -124,14 +126,16 @@ Describe 'New-FslReport' {
                 New-TestFinding -Severity Pass
             ) | New-FslReport -Path $path | Out-Null
             $html = Get-Content $path -Raw
-            $html | Should -Match '<h2>Action items</h2>'
-            $html | Should -Match '(?s)<h2>Action items</h2>.*Do the thing'
+            $html | Should -Match '<h2>Action items<span class="count">1</span></h2>'
+            $html | Should -Match '(?s)<h2>Action items<span.*Do the thing'
         }
 
         It 'omits the action items section when nothing needs a human' {
             $path = Join-Path $TestDrive 'no-actions.html'
             @(New-TestFinding -Severity Pass) | New-FslReport -Path $path | Out-Null
-            (Get-Content $path -Raw) | Should -Not -Match 'Action items'
+            # The verdict sub line legitimately says '0 action items'; only the
+            # heading and its table must be absent.
+            (Get-Content $path -Raw) | Should -Not -Match '<h2>Action items'
         }
 
         It 'collapses long messages behind a details element' {
