@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-20
+
+### Fixed
+
+- The HTML report no longer counts shares or user accounts as 'hosts': the
+  host list behind the title, header label and status chips excludes
+  ProfileStore targets and path-like targets. A fleet report with a store
+  scan showed the profile share as a third 'host' chip and titled itself
+  '3 hosts' for a two-host fleet.
+
 ## [1.6.0] - 2026-07-20
 
 ### Added

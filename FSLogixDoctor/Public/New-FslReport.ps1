@@ -46,8 +46,20 @@ function New-FslReport {
     end {
         # Fleet reports carry merged targets ('host-a, host-b'); the distinct
         # host list drives the title, the header label and the status chips.
-        $hostNames = @($all | ForEach-Object { ([string]$_.Target) -split ',\s*' } |
-                Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+        # Targets are not always hosts: ProfileStore findings target shares and
+        # users, unhealthy sessions target accounts - exclude the ProfileStore
+        # category and anything path-like (contains \ or /) so a share never
+        # shows up as a 'host'.
+        $hostNames = @($all | Where-Object { [string]$_.Category -ne 'ProfileStore' } |
+                ForEach-Object { ([string]$_.Target) -split ',\s*' } |
+                Where-Object { $_ -and $_ -notmatch '[\\/]' } |
+                Select-Object -Unique | Sort-Object)
+        if ($hostNames.Count -eq 0) {
+            # Degenerate case (e.g. a pure store report): fall back to the raw
+            # distinct targets rather than pretending there is nothing.
+            $hostNames = @($all | ForEach-Object { ([string]$_.Target) -split ',\s*' } |
+                    Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+        }
         $hostCount = $hostNames.Count
         $hostLabel = '1 host'
         if ($hostCount -ne 1) { $hostLabel = ('{0} hosts' -f $hostCount) }

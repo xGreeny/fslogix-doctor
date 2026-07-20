@@ -108,6 +108,35 @@ Describe 'New-FslReport' {
             $html | Should -Match 'hostchip"><span class="sev pass"><span class="glyph">[^<]+</span></span>LAB-SH-02'
         }
 
+        It 'derives hosts only from host-like targets - shares and users never become chips' {
+            $path = Join-Path $TestDrive 'hosts-filtered.html'
+            $findings = @(
+                New-TestFinding -Severity Warning
+                New-TestFinding -Severity Pass
+                New-TestFinding -Severity Warning -Category 'ProfileStore'
+                New-TestFinding -Severity Warning -Category 'SessionState'
+            )
+            $findings[1].Target = 'LAB-SH-02'
+            $findings[2].Target = '\\fs01\fslogix$'
+            $findings[3].Target = 'LAB\mmuster'
+            $findings | New-FslReport -Path $path | Out-Null
+            $html = Get-Content $path -Raw
+            $html | Should -Match '<title>FSLogix Fleet Report - 2 hosts</title>'
+            $chipRow = ([regex]::Match($html, '<div class="hosts">.*?</div>')).Value
+            $chipRow | Should -Match 'LAB-SH-01'
+            $chipRow | Should -Match 'LAB-SH-02'
+            $chipRow | Should -Not -Match 'fslogix\$'
+            $chipRow | Should -Not -Match 'mmuster'
+        }
+
+        It 'falls back to raw targets when no host-like targets exist' {
+            $path = Join-Path $TestDrive 'hosts-fallback.html'
+            $storeFinding = New-TestFinding -Severity Warning -Category 'ProfileStore'
+            $storeFinding.Target = '\\fs01\fslogix$'
+            @($storeFinding) | New-FslReport -Path $path | Out-Null
+            (Get-Content $path -Raw) | Should -Match '<title>FSLogix Health Report - '
+        }
+
         It 'omits host chips for single-host reports' {
             $path = Join-Path $TestDrive 'chips-single.html'
             @(New-TestFinding) | New-FslReport -Path $path | Out-Null
