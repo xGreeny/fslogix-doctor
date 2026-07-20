@@ -87,6 +87,64 @@ Describe 'Invoke-FslDiagnostic' {
         @($findings | Where-Object { $_.Category -eq 'EventLog' -and $_.Severity -eq 'Pass' }).Count | Should -Be 1
     }
 
+    Context 'noise handling and session correlation' {
+
+        It 'reports all-benign log buckets as Info' {
+            Mock Get-FslLogError -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000057'; Message = 'Failed to query activity id for session 1 (Falscher Parameter.)'; Benign = $true; File = 'C:\logs\Profile-1.log'; LineNumber = 12 }
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000057'; Message = 'Failed to query activity id for session 7 (Falscher Parameter.)'; Benign = $true; File = 'C:\logs\Profile-1.log'; LineNumber = 40 }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $logFinding = @($findings | Where-Object { $_.Category -eq 'LogFile' -and $_.Check -like '*0x00000057*' })
+            $logFinding.Count | Should -Be 1
+            $logFinding[0].Severity | Should -Be 'Info'
+            $logFinding[0].Message | Should -Match 'known-benign'
+        }
+
+        It 'counts only alert-worthy lines and reports the benign remainder' {
+            Mock Get-FslLogError -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000005'; Message = 'Failed to attach VHD (Access is denied.)'; Benign = $false; File = 'C:\logs\Profile-1.log'; LineNumber = 10 }
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000005'; Message = 'Import group policy DataStore key failed (Zugriff verweigert)'; Benign = $true; File = 'C:\logs\Profile-1.log'; LineNumber = 22 }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $logFinding = @($findings | Where-Object { $_.Category -eq 'LogFile' -and $_.Check -like '*0x00000005*' })
+            $logFinding[0].Message | Should -Match '^1x'
+            $logFinding[0].Message | Should -Match '1 known-benign noise line'
+            $logFinding[0].Evidence | Should -Match 'Messages:'
+        }
+
+        It 'downgrades Critical log findings to Warning when every session attached cleanly' {
+            Mock Get-FslSessionState -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ Container = 'Profile'; Sid = 'S-1-5-21-1-2-3-1001'; Account = 'LAB\jdoe'; Status = 0; StatusText = 'Success'; Reason = 0; ReasonText = 'Attached'; Error = 0; ErrorText = $null; Attached = $true; Healthy = $true }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $logFinding = @($findings | Where-Object { $_.Category -eq 'LogFile' -and $_.Check -like '*0x00000020*' })
+            $logFinding[0].Severity | Should -Be 'Warning'
+            $logFinding[0].Message | Should -Match 'attached cleanly'
+            $eventFinding = @($findings | Where-Object Category -eq 'EventLog')
+            $eventFinding[0].Severity | Should -Be 'Warning'
+        }
+
+        It 'reports all-benign event buckets as Info' {
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; EventId = 26; Count = 56; BenignCount = 56; Level = 'Fehler'; LevelValue = 2; Meaning = 'Generic error record'; Recommendation = 'n/a'; FirstSeen = (Get-Date).AddHours(-3); LastSeen = Get-Date; SampleMessage = 'Failed to query activity id for session 1 (Falscher Parameter.)'; TopMessages = @('56x Failed to query activity id for session # (Falscher Parameter.)') }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $eventFinding = @($findings | Where-Object Category -eq 'EventLog')
+            $eventFinding[0].Severity | Should -Be 'Info'
+            $eventFinding[0].Message | Should -Match 'known-benign'
+            $eventFinding[0].Evidence | Should -Match 'Messages: 56x'
+        }
+    }
+
     It 'does not escalate WARN-only curated codes to Critical' {
         Mock Get-FslLogError -ModuleName FSLogixDoctor {
             @(

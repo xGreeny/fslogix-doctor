@@ -6,6 +6,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-20
+
+### Added
+
+- Known-benign noise database (`Data\BenignPatterns.psd1`). Messages that
+  FSLogix logs at ERROR level but that are documented or widely observed as
+  harmless - 'Failed to query activity id', the GPO DataStore import failure,
+  the two documented Entra-only LDAP errors and the archived-FAQ
+  SHSetKnownFolderPath exception - are recognized per message, not per error
+  code. Buckets consisting entirely of noise are reported as Info.
+- `Get-FslLogError`: new `Benign` property on every entry, so real errors
+  separate from noise with `Where-Object { -not $_.Benign }`.
+- `Get-FslEventSummary`: new `BenignCount` and `TopMessages` properties per
+  bucket - generic-error IDs (notably event 26) no longer hide what the
+  events actually say.
+
+### Changed
+
+- `Invoke-FslDiagnostic` now correlates log/event findings with the session
+  state: when every recorded session attached cleanly, Critical log/event
+  findings are downgraded to Warning, because no user-visible impact exists.
+  Hosts with unhealthy sessions keep the Critical escalation unchanged.
+- Log and event findings show a breakdown of the distinct messages behind
+  each counter (digit-collapsed, top 3) instead of a single sample line, and
+  alert counts exclude known-benign noise lines.
+
 ## [1.0.0] - 2026-07-13
 
 ### Added

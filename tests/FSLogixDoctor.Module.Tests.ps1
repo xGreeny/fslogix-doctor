@@ -83,5 +83,16 @@ Describe 'FSLogixDoctor module' {
                 $data[$key].Meaning | Should -Not -BeNullOrEmpty
             }
         }
+
+        It 'ships a well-formed benign-pattern database' {
+            $data = Import-PowerShellDataFile (Join-Path $PSScriptRoot '..\FSLogixDoctor\Data\BenignPatterns.psd1')
+            @($data.Patterns).Count | Should -BeGreaterThan 3
+            foreach ($entry in $data.Patterns) {
+                $entry.Pattern | Should -Not -BeNullOrEmpty
+                # Patterns must tolerate arbitrary prefixes and localized suffixes.
+                $entry.Pattern | Should -Match '^\*.*\*$'
+                $entry.Reason | Should -Not -BeNullOrEmpty
+            }
+        }
     }
 }

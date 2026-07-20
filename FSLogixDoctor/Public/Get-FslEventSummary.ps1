@@ -96,11 +96,19 @@ function Get-FslEventSummary {
                 $recommendation = ($known.Fixes -join ' ')
             }
 
+            # Generic-error IDs (notably event 26) reuse one ID for many different
+            # messages; classify each message so known-benign noise can be told
+            # apart from real failures, and expose the distinct messages.
+            $messages = @($sorted | ForEach-Object { $_.Message })
+            $benignCount = @($messages | Where-Object { Test-FslBenignMessage -Message $_ }).Count
+            $topMessages = @(Get-FslMessageBreakdown -Message $messages)
+
             [pscustomobject]@{
                 PSTypeName     = 'FSLogixDoctor.EventSummary'
                 ComputerName   = $computer
                 EventId        = [int]$group.Name
                 Count          = $group.Count
+                BenignCount    = $benignCount
                 Level          = ($sorted | Select-Object -Last 1).LevelDisplayName
                 LevelValue     = $mostSevereLevel
                 Meaning        = $meaning
@@ -108,6 +116,7 @@ function Get-FslEventSummary {
                 FirstSeen      = ($sorted | Select-Object -First 1).TimeCreated
                 LastSeen       = ($sorted | Select-Object -Last 1).TimeCreated
                 SampleMessage  = $sample
+                TopMessages    = $topMessages
             }
         }
     }

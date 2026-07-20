@@ -7,7 +7,7 @@ function Get-FslDataTable {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('ErrorCodes', 'SessionCodes', 'EventIds')]
+        [ValidateSet('ErrorCodes', 'SessionCodes', 'EventIds', 'BenignPatterns')]
         [string]$Name
     )
 

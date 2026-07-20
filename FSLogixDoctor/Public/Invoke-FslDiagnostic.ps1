@@ -14,6 +14,12 @@ function Invoke-FslDiagnostic {
 
         Returns FSLogixDoctor.Finding objects and optionally renders them into a
         self-contained HTML report (-ReportPath).
+
+        Two safeguards keep noise from drowning out real problems: messages that
+        match the known-benign noise database (Data\BenignPatterns.psd1) are
+        reported as Info instead of Critical, and when every recorded session
+        attached cleanly, remaining Critical log/event findings are downgraded to
+        Warning because no user-visible impact exists yet.
     .PARAMETER Hours
         Look-back window for log and event analysis. Defaults to 24.
     .PARAMETER LogPath
@@ -70,6 +76,12 @@ function Invoke-FslDiagnostic {
                     -Message ("All {0} recorded session(s) attached cleanly." -f $sessions.Count)))
     }
 
+    # When every recorded session attached cleanly, log/event errors have no
+    # visible user impact (yet); Critical log/event findings are downgraded to
+    # Warning below so real outages stand out from service-level noise.
+    $allSessionsHealthy = ($sessions.Count -gt 0 -and $unhealthy.Count -eq 0)
+    $correlationNote = 'Downgraded from Critical: all recorded sessions attached cleanly, so no user impact is visible yet.'
+
     # 4: Log file errors, grouped by error code.
     Write-Verbose ("Parsing FSLogix logs since {0}..." -f $after)
     $logParams = @{ Path = $LogPath; After = $after; WarningAction = 'SilentlyContinue' }
@@ -77,31 +89,55 @@ function Invoke-FslDiagnostic {
     $logEntries = @(Get-FslLogError @logParams)
 
     foreach ($group in ($logEntries | Group-Object ErrorCode | Sort-Object Count -Descending)) {
-        $sample = $group.Group | Select-Object -Last 1
+        $codeLabel = $group.Name
+        if (-not $codeLabel) { $codeLabel = 'no code' }
+        $breakdown = (@(Get-FslMessageBreakdown -Message @($group.Group | ForEach-Object Message)) -join ' | ')
+
+        # The same error code can carry both real failures and known-benign noise
+        # (e.g. 0x00000005 for real ACL problems AND the harmless GPO DataStore
+        # import); classify per message, not per code.
+        $benign = @($group.Group | Where-Object { $_.Benign })
+        $alertable = @($group.Group | Where-Object { -not $_.Benign })
+
+        if ($alertable.Count -eq 0) {
+            $reasons = (@($group.Group | ForEach-Object { (Test-FslBenignMessage -Message $_.Message).Reason } | Select-Object -Unique) -join ' ')
+            $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity Info `
+                        -Message ("{0}x in the last {1}h: [{2}] every occurrence matches a known-benign noise pattern - no action needed. {3}" -f $group.Count, $Hours, $codeLabel, $reasons) `
+                        -Evidence ("Messages: {0}" -f $breakdown)))
+            continue
+        }
+
+        $sample = $alertable | Select-Object -Last 1
         $severity = 'Warning'
         $meaning = ''
         $recommendation = ''
         $helpUri = ''
-        $groupHasError = (@($group.Group | Where-Object Level -eq 'ERROR').Count -gt 0)
+        $groupHasError = (@($alertable | Where-Object Level -eq 'ERROR').Count -gt 0)
         if ($group.Name) {
             $decoded = Get-FslErrorCode -Code $group.Name
             if ($decoded) {
                 $meaning = $decoded.Meaning
                 $recommendation = (@($decoded.Fixes) -join ' ')
-                # Curated codes are escalated only when the group actually contains
-                # ERROR-level lines; several curated codes are documented as benign
-                # at WARN level (e.g. 0x00000002 at a user's first sign-in).
+                # Curated codes are escalated only when the alert-worthy lines
+                # contain ERROR-level entries; several curated codes are documented
+                # as benign at WARN level (e.g. 0x00000002 at a user's first
+                # sign-in).
                 if ($decoded.InDatabase -and $groupHasError) { $severity = 'Critical' }
                 $helpUri = [string]$decoded.Source
             }
         }
-        $codeLabel = $group.Name
-        if (-not $codeLabel) { $codeLabel = 'no code' }
 
-        $message = ("{0}x in the last {1}h: [{2}] {3}" -f $group.Count, $Hours, $codeLabel, $meaning).Trim()
+        $message = ("{0}x in the last {1}h: [{2}] {3}" -f $alertable.Count, $Hours, $codeLabel, $meaning).Trim()
+        if ($benign.Count -gt 0) {
+            $message += (" (Plus {0} known-benign noise line(s) with the same code, excluded from this count.)" -f $benign.Count)
+        }
+        if ($severity -eq 'Critical' -and $allSessionsHealthy) {
+            $severity = 'Warning'
+            $message += ' ' + $correlationNote
+        }
         $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity $severity `
                     -Message $message `
-                    -Evidence ("Sample: {0} ({1}:{2})" -f $sample.Message, $sample.File, $sample.LineNumber) `
+                    -Evidence ("Messages: {0}. Sample: {1} ({2}:{3})" -f $breakdown, $sample.Message, $sample.File, $sample.LineNumber) `
                     -Recommendation $recommendation -HelpUri $helpUri))
     }
     if ($logEntries.Count -eq 0) {
@@ -113,13 +149,37 @@ function Invoke-FslDiagnostic {
     Write-Verbose 'Summarizing FSLogix event logs...'
     $eventSummaries = @(Get-FslEventSummary -After $after -MinimumLevel Warning -WarningAction SilentlyContinue)
     foreach ($summary in $eventSummaries) {
+        $count = [int]$summary.Count
+        $benignCount = 0
+        if ($null -ne $summary.PSObject.Properties['BenignCount']) { $benignCount = [int]$summary.BenignCount }
+
+        $evidence = ("Last seen {0}. Sample: {1}" -f $summary.LastSeen, $summary.SampleMessage)
+        if ($null -ne $summary.PSObject.Properties['TopMessages'] -and @($summary.TopMessages).Count -gt 0) {
+            $evidence = ("Last seen {0}. Messages: {1}" -f $summary.LastSeen, (@($summary.TopMessages) -join ' | '))
+        }
+
+        if ($count -gt 0 -and $benignCount -ge $count) {
+            $findings.Add((New-FslFinding -Category EventLog -Check ("Event {0}" -f $summary.EventId) -Severity Info -Target $summary.ComputerName `
+                        -Message ("{0}x event {1}: every occurrence matches a known-benign noise pattern - no action needed." -f $count, $summary.EventId) `
+                        -Evidence $evidence))
+            continue
+        }
+
         $severity = 'Warning'
         # Classify on the numeric level (1=Critical, 2=Error) - LevelDisplayName
         # is localized and must never be used for logic.
         if ($null -ne $summary.LevelValue -and [int]$summary.LevelValue -le 2) { $severity = 'Critical' }
+        $message = ("{0}x event {1}: {2}" -f $count, $summary.EventId, $summary.Meaning)
+        if ($benignCount -gt 0) {
+            $message += (" ({0} of {1} occurrences match known-benign noise patterns.)" -f $benignCount, $count)
+        }
+        if ($severity -eq 'Critical' -and $allSessionsHealthy) {
+            $severity = 'Warning'
+            $message += ' ' + $correlationNote
+        }
         $findings.Add((New-FslFinding -Category EventLog -Check ("Event {0}" -f $summary.EventId) -Severity $severity -Target $summary.ComputerName `
-                    -Message ("{0}x event {1}: {2}" -f $summary.Count, $summary.EventId, $summary.Meaning) `
-                    -Evidence ("Last seen {0}. Sample: {1}" -f $summary.LastSeen, $summary.SampleMessage) `
+                    -Message $message `
+                    -Evidence $evidence `
                     -Recommendation $summary.Recommendation))
     }
     if ($eventSummaries.Count -eq 0) {

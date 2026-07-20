@@ -54,6 +54,43 @@ Describe 'Get-FslEventSummary' {
             ($summary | Where-Object EventId -eq 26).LevelValue | Should -Be 2
             ($summary | Where-Object EventId -eq 31).LevelValue | Should -Be 3
         }
+
+        It 'exposes distinct messages per bucket with counts' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            # The two attach failures differ in the user name, so they stay
+            # distinct patterns.
+            @($bucket.TopMessages).Count | Should -Be 2
+            $bucket.TopMessages | ForEach-Object { $_ | Should -Match '^1x Failed to attach VHD' }
+        }
+    }
+
+    Context 'generic-error buckets carrying known-benign noise' {
+
+        BeforeAll {
+            $script:now = Get-Date
+            Mock Get-WinEvent -ModuleName FSLogixDoctor { @() }
+            Mock Get-WinEvent -ModuleName FSLogixDoctor -ParameterFilter {
+                $FilterHashtable.LogName -eq 'Microsoft-FSLogix-Apps/Operational'
+            } {
+                @(
+                    [pscustomobject]@{ Id = 26; Level = 2; LevelDisplayName = 'Fehler'; TimeCreated = $script:now.AddMinutes(-20); Message = 'Failed to query activity id for session 1 (Falscher Parameter.)' }
+                    [pscustomobject]@{ Id = 26; Level = 2; LevelDisplayName = 'Fehler'; TimeCreated = $script:now.AddMinutes(-15); Message = 'Failed to query activity id for session 7 (Falscher Parameter.)' }
+                    [pscustomobject]@{ Id = 26; Level = 2; LevelDisplayName = 'Fehler'; TimeCreated = $script:now.AddMinutes(-10); Message = 'Failed to attach VHD for user LAB\jdoe' }
+                )
+            }
+        }
+
+        It 'counts benign occurrences separately per bucket' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            $bucket.Count | Should -Be 3
+            $bucket.BenignCount | Should -Be 2
+        }
+
+        It 'collapses numeric noise so message variants group together' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            @($bucket.TopMessages).Count | Should -Be 2
+            $bucket.TopMessages[0] | Should -Match '^2x Failed to query activity id'
+        }
     }
 
     Context 'without matching events' {

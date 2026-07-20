@@ -74,6 +74,33 @@ Describe 'Get-FslLogError' {
         $warnings.Count | Should -BeGreaterThan 0
     }
 
+    Context 'benign noise classification' {
+
+        BeforeAll {
+            $script:noiseRoot = Join-Path $TestDrive 'NoiseLogs'
+            New-Item -Path (Join-Path $script:noiseRoot 'Profile') -ItemType Directory -Force | Out-Null
+            # Real-world shapes from a German-locale host: the FSLogix message body
+            # is English, only the Windows error text in parentheses is localized.
+            @(
+                '[08:00:01.123][tid:00001348.00001c9c][ERROR:00000057]      Failed to query activity id for session 4 (Falscher Parameter.)'
+                '[08:00:02.456][tid:00001348.00001c9c][ERROR:00000005]      Import group policy DataStore key failed (Zugriff verweigert)'
+                '[08:00:03.789][tid:00001348.00001c9c][ERROR:00000005]      Failed to attach VHD (Access is denied.)'
+            ) | Set-Content -Path (Join-Path $script:noiseRoot 'Profile\Profile-20260719.log')
+        }
+
+        It 'flags known noise messages as Benign regardless of localized error text' {
+            $entries = @(Get-FslLogError -Path $script:noiseRoot -After $script:longAgo)
+            @($entries | Where-Object Benign).Count | Should -Be 2
+            ($entries | Where-Object Message -like 'Failed to query activity id*').Benign | Should -BeTrue
+            ($entries | Where-Object Message -like 'Import group policy*').Benign | Should -BeTrue
+        }
+
+        It 'leaves real errors unflagged even when they share the error code' {
+            $entries = @(Get-FslLogError -Path $script:noiseRoot -After $script:longAgo)
+            ($entries | Where-Object Message -like 'Failed to attach VHD*').Benign | Should -BeFalse
+        }
+    }
+
     Context 'midnight rollover and fraction-width tolerance' {
 
         BeforeAll {

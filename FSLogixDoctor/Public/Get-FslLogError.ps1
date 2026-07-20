@@ -7,6 +7,11 @@ function Get-FslLogError {
         WARN/ERROR lines including embedded error codes, and returns one object per
         entry. Pipe the result to Get-FslErrorCode to decode the codes, or into
         New-FslReport via Invoke-FslDiagnostic.
+
+        Each entry carries a Benign flag: $true when the message matches one of the
+        known-benign noise patterns in Data\BenignPatterns.psd1 (e.g. 'Failed to
+        query activity id'), so real errors can be separated from log noise with
+        Get-FslLogError | Where-Object { -not $_.Benign }.
     .PARAMETER Path
         Root log directory. Defaults to %ProgramData%\FSLogix\Logs.
     .PARAMETER Component
@@ -125,6 +130,7 @@ function Get-FslLogError {
                     Level      = $level
                     ErrorCode  = $normalizedCode
                     Message    = $message
+                    Benign     = [bool](Test-FslBenignMessage -Message $message)
                     File       = $file.FullName
                     LineNumber = $lineNumber
                 }
