@@ -56,6 +56,12 @@ Describe 'Get-FslErrorCode' {
         (Get-FslErrorCode -Code 'error_sharing_violation').Code | Should -Be '0x00000020'
     }
 
+    It 'decodes the compaction shrink-failure code 0x0000A418' {
+        $decoded = Get-FslErrorCode -Code '0x0000A418'
+        $decoded.InDatabase | Should -BeTrue
+        $decoded.Meaning | Should -Match 'volume with errors'
+    }
+
     It 'falls back to the Win32 message for unknown codes' {
         $result = Get-FslErrorCode -Code '0x000004D3'  # 1235 = ERROR_REQUEST_ABORTED, unlikely to be curated
         $result.InDatabase | Should -BeFalse

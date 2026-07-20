@@ -91,7 +91,6 @@ function Invoke-FslDiagnostic {
     foreach ($group in ($logEntries | Group-Object ErrorCode | Sort-Object Count -Descending)) {
         $codeLabel = $group.Name
         if (-not $codeLabel) { $codeLabel = 'no code' }
-        $breakdown = (@(Get-FslMessageBreakdown -Message @($group.Group | ForEach-Object Message)) -join ' | ')
 
         # The same error code can carry both real failures and known-benign noise
         # (e.g. 0x00000005 for real ACL problems AND the harmless GPO DataStore
@@ -100,12 +99,17 @@ function Invoke-FslDiagnostic {
         $alertable = @($group.Group | Where-Object { -not $_.Benign })
 
         if ($alertable.Count -eq 0) {
+            $breakdown = (@(Get-FslMessageBreakdown -Message @($group.Group | ForEach-Object Message)) -join ' | ')
             $reasons = (@($group.Group | ForEach-Object { (Test-FslBenignMessage -Message $_.Message).Reason } | Select-Object -Unique) -join ' ')
             $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity Info `
                         -Message ("{0}x in the last {1}h: [{2}] every occurrence matches a known-benign noise pattern - no action needed. {3}" -f $group.Count, $Hours, $codeLabel, $reasons) `
                         -Evidence ("Messages: {0}" -f $breakdown)))
             continue
         }
+
+        # Mixed bucket: the alert-worthy messages lead the evidence, never the
+        # noise - one real failure must not hide behind 60x of known chatter.
+        $alertBreakdown = (@(Get-FslMessageBreakdown -Message @($alertable | ForEach-Object Message) -Top 5) -join ' | ')
 
         $sample = $alertable | Select-Object -Last 1
         $severity = 'Warning'
@@ -137,7 +141,7 @@ function Invoke-FslDiagnostic {
         }
         $findings.Add((New-FslFinding -Category LogFile -Check ("Log errors ({0})" -f $codeLabel) -Severity $severity `
                     -Message $message `
-                    -Evidence ("Messages: {0}. Sample: {1} ({2}:{3})" -f $breakdown, $sample.Message, $sample.File, $sample.LineNumber) `
+                    -Evidence ("Alert-worthy: {0}. Sample: {1} ({2}:{3})" -f $alertBreakdown, $sample.Message, $sample.File, $sample.LineNumber) `
                     -Recommendation $recommendation -HelpUri $helpUri))
     }
     if ($logEntries.Count -eq 0) {
@@ -165,10 +169,21 @@ function Invoke-FslDiagnostic {
             continue
         }
 
+        # Mixed bucket: lead the evidence with the alert-worthy messages so a
+        # single real failure never hides behind the noise counts.
+        if ($benignCount -gt 0 -and $null -ne $summary.PSObject.Properties['AlertMessages'] -and @($summary.AlertMessages).Count -gt 0) {
+            $evidence = ("Last seen {0}. Alert-worthy: {1}. Plus {2}x known-benign noise." -f $summary.LastSeen, (@($summary.AlertMessages) -join ' | '), $benignCount)
+        }
+
         $severity = 'Warning'
         # Classify on the numeric level (1=Critical, 2=Error) - LevelDisplayName
         # is localized and must never be used for logic.
         if ($null -ne $summary.LevelValue -and [int]$summary.LevelValue -le 2) { $severity = 'Critical' }
+        # A curated database entry may pin the severity (housekeeping events such
+        # as event 29 'Orphaned OST' are logged as Warning but only carry an FYI).
+        $curatedSeverity = $null
+        if ($null -ne $summary.PSObject.Properties['CuratedSeverity']) { $curatedSeverity = [string]$summary.CuratedSeverity }
+        if ($curatedSeverity -in @('Pass', 'Info', 'Warning', 'Critical')) { $severity = $curatedSeverity }
         $message = ("{0}x event {1}: {2}" -f $count, $summary.EventId, $summary.Meaning)
         if ($benignCount -gt 0) {
             $message += (" ({0} of {1} occurrences match known-benign noise patterns.)" -f $benignCount, $count)

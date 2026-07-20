@@ -1024,6 +1024,22 @@ context.
 
 *Source:* [https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1300-1699-](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1300-1699-) (community-observed)
 
+### Code 0x0000A418 - STORAGE_SHRINK_VOLUME_ERRORS (unofficial label; Storage Management ErrCode 42008)
+
+**Meaning:** Storage Management result 42008 (hex 0xA418): 'Cannot shrink a partition containing a volume with errors'. Observed in Profile logs during VHD Disk Compaction when FSLogix queries the minimum supported size at sign-out (log line: 'SupportedSize ExtendedStatus: ... (ErrCode:42008 -\> Cannot shrink a partition containing a volume with errors.)'). The NTFS volume INSIDE the user's container has filesystem errors, so the shrink evaluation refuses and compaction is skipped. Attach/detach is unaffected, but filesystem errors inside a profile container deserve a maintenance check - and the disk keeps growing until repaired.
+
+**Likely causes:**
+- Filesystem corruption / dirty NTFS volume inside the user's VHD(X), typically after an abrupt detach (host crash, hard session teardown, storage hiccup)
+- Chronic recurrence: the same container fails the shrink evaluation at every sign-out until the volume is repaired
+
+**Fixes / next steps:**
+- Identify the affected user/container from the surrounding Profile\_\*.log lines (same session and timestamp)
+- In a maintenance window with the user signed out: mount the VHDX (Mount-VHD) and run chkdsk /f against the contained volume, then unmount
+- Verify at the next sign-out that event 57 reports WasCompacted=true and the 42008 line is gone
+- If it recurs across many containers, investigate storage-level causes (latency, crashes, antivirus interference on \*.vhdx)
+
+*Source:* [https://learn.microsoft.com/en-us/fslogix/troubleshooting-vhd-disk-compaction](https://learn.microsoft.com/en-us/fslogix/troubleshooting-vhd-disk-compaction) (community-observed)
+
 ### Code 0x80070003 - HRESULT_ERROR_PATH_NOT_FOUND
 
 **Meaning:** HRESULT-wrapped 'The system cannot find the path specified' (Win32 error 3 in facility WIN32). Official FSLogix docs show it in profile logs as '[ERROR:80070003] Failed to save installed AppxPackages (The system cannot find the path specified.)' - a path expected inside the profile/container is missing.
@@ -1103,6 +1119,21 @@ the authoritative per-version list with:
 - For unload/detach errors, check for open handles on the VHD(x) and stale sessions; consider CleanupInvalidSessions
 
 *Source:* [https://learn.microsoft.com/en-us/fslogix/troubleshooting-known-issues](https://learn.microsoft.com/en-us/fslogix/troubleshooting-known-issues) (verified by Microsoft docs)
+
+### Event 29 - ORPHANED_OST_DETECTED (unofficial label; field-observed)
+
+**Meaning:** Warning-level housekeeping event in Microsoft-FSLogix-Apps/Operational: 'Orphaned OST file(s) found. Username: \<user\> - MailBox: \<path\> - Potential Savings: ...'. FSLogix detected stale/duplicate Outlook OST cache files in the user's profile that no longer belong to the active mailbox cache. Not a failure: an OST is a regenerable local cache, but orphans bloat the container - the event even advertises the potential space savings.
+
+**Likely causes:**
+- Outlook recreated its OST (profile repair, mailbox migration, cached-mode change) and left the old file behind inside the container
+- Multiple OSTs accumulated over time under AppData\\Local\\Microsoft\\Outlook in the profile/ODFC container
+
+**Fixes / next steps:**
+- With the user signed out, delete the orphaned OST file(s) inside the container - they are caches and regenerate on the next Outlook start
+- If orphans keep accumulating, review the Outlook cached-mode sync window and recent mailbox changes
+- The freed space is reclaimed at the next sign-out by VHD Disk Compaction (event 57)
+
+*Source:* [https://learn.microsoft.com/en-us/fslogix/concepts-container-types](https://learn.microsoft.com/en-us/fslogix/concepts-container-types) (community-observed)
 
 ### Event 33 - VHD_ATTACH_FAILURE (community claim; unconfirmed)
 

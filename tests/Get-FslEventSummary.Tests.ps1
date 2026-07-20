@@ -91,6 +91,39 @@ Describe 'Get-FslEventSummary' {
             @($bucket.TopMessages).Count | Should -Be 2
             $bucket.TopMessages[0] | Should -Match '^2x Failed to query activity id'
         }
+
+        It 'exposes only the alert-worthy messages in AlertMessages' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            @($bucket.AlertMessages).Count | Should -Be 1
+            $bucket.AlertMessages[0] | Should -Match '^1x Failed to attach VHD'
+        }
+    }
+
+    Context 'curated severity overrides' {
+
+        BeforeAll {
+            $script:now = Get-Date
+            Mock Get-WinEvent -ModuleName FSLogixDoctor { @() }
+            Mock Get-WinEvent -ModuleName FSLogixDoctor -ParameterFilter {
+                $FilterHashtable.LogName -eq 'Microsoft-FSLogix-Apps/Operational'
+            } {
+                @(
+                    [pscustomobject]@{ Id = 29; Level = 3; LevelDisplayName = 'Warnung'; TimeCreated = $script:now.AddMinutes(-5); Message = 'Orphaned OST file(s) found. Username: jdoe - MailBox: C:\Users\jdoe\AppData\Local\Microsoft\Outlook\jdoe@contoso.ch - Potential Savings: 2.1 GB' }
+                    [pscustomobject]@{ Id = 26; Level = 2; LevelDisplayName = 'Fehler'; TimeCreated = $script:now.AddMinutes(-4); Message = 'Failed to attach VHD for user LAB\jdoe' }
+                )
+            }
+        }
+
+        It 'carries the curated Info override for the orphaned-OST housekeeping event' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 29
+            $bucket.CuratedSeverity | Should -Be 'Info'
+            $bucket.Meaning | Should -Match 'OST'
+        }
+
+        It 'leaves CuratedSeverity empty for events without an override' {
+            $bucket = @(Get-FslEventSummary) | Where-Object EventId -eq 26
+            $bucket.CuratedSeverity | Should -BeNullOrEmpty
+        }
     }
 
     Context 'without matching events' {

@@ -17,6 +17,17 @@
         Source   = 'https://learn.microsoft.com/en-us/fslogix/troubleshooting-known-issues'
         Verified = $true
     }
+    '29' = @{
+        Name     = 'ORPHANED_OST_DETECTED (unofficial label; field-observed)'
+        Meaning  = 'Warning-level housekeeping event in Microsoft-FSLogix-Apps/Operational: ''Orphaned OST file(s) found. Username: <user> - MailBox: <path> - Potential Savings: ...''. FSLogix detected stale/duplicate Outlook OST cache files in the user''s profile that no longer belong to the active mailbox cache. Not a failure: an OST is a regenerable local cache, but orphans bloat the container - the event even advertises the potential space savings.'
+        Causes   = @('Outlook recreated its OST (profile repair, mailbox migration, cached-mode change) and left the old file behind inside the container', 'Multiple OSTs accumulated over time under AppData\Local\Microsoft\Outlook in the profile/ODFC container')
+        Fixes    = @('With the user signed out, delete the orphaned OST file(s) inside the container - they are caches and regenerate on the next Outlook start', 'If orphans keep accumulating, review the Outlook cached-mode sync window and recent mailbox changes', 'The freed space is reclaimed at the next sign-out by VHD Disk Compaction (event 57)')
+        # Housekeeping hint, not a failure: report as Info regardless of the
+        # Windows event level.
+        Severity = 'Info'
+        Source   = 'https://learn.microsoft.com/en-us/fslogix/concepts-container-types'
+        Verified = $false
+    }
     '33' = @{
         Name     = 'VHD_ATTACH_FAILURE (community claim; unconfirmed)'
         Meaning  = 'Claimed by a Microsoft Q&A community answer to indicate a VHD attach failure in Microsoft-FSLogix-Apps/Operational, possibly with ''locked'' in the message when the disk is still in use elsewhere. NOT found in any official Microsoft documentation and not corroborated by a second independent source - low confidence; include in a diagnostic tool only as ''possible attach failure, verify message text''.'

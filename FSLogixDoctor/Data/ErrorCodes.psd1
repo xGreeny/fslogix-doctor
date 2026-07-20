@@ -209,6 +209,14 @@
         Source   = 'https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1300-1699-'
         Verified = $false
     }
+    '0x0000A418' = @{
+        Name     = 'STORAGE_SHRINK_VOLUME_ERRORS (unofficial label; Storage Management ErrCode 42008)'
+        Meaning  = 'Storage Management result 42008 (hex 0xA418): ''Cannot shrink a partition containing a volume with errors''. Observed in Profile logs during VHD Disk Compaction when FSLogix queries the minimum supported size at sign-out (log line: ''SupportedSize ExtendedStatus: ... (ErrCode:42008 -> Cannot shrink a partition containing a volume with errors.)''). The NTFS volume INSIDE the user''s container has filesystem errors, so the shrink evaluation refuses and compaction is skipped. Attach/detach is unaffected, but filesystem errors inside a profile container deserve a maintenance check - and the disk keeps growing until repaired.'
+        Causes   = @('Filesystem corruption / dirty NTFS volume inside the user''s VHD(X), typically after an abrupt detach (host crash, hard session teardown, storage hiccup)', 'Chronic recurrence: the same container fails the shrink evaluation at every sign-out until the volume is repaired')
+        Fixes    = @('Identify the affected user/container from the surrounding Profile_*.log lines (same session and timestamp)', 'In a maintenance window with the user signed out: mount the VHDX (Mount-VHD) and run chkdsk /f against the contained volume, then unmount', 'Verify at the next sign-out that event 57 reports WasCompacted=true and the 42008 line is gone', 'If it recurs across many containers, investigate storage-level causes (latency, crashes, antivirus interference on *.vhdx)')
+        Source   = 'https://learn.microsoft.com/en-us/fslogix/troubleshooting-vhd-disk-compaction'
+        Verified = $false
+    }
     '0x80070003' = @{
         Name     = 'HRESULT_ERROR_PATH_NOT_FOUND'
         Meaning  = 'HRESULT-wrapped ''The system cannot find the path specified'' (Win32 error 3 in facility WIN32). Official FSLogix docs show it in profile logs as ''[ERROR:80070003] Failed to save installed AppxPackages (The system cannot find the path specified.)'' - a path expected inside the profile/container is missing.'

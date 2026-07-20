@@ -6,6 +6,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-20
+
+### Added
+
+- Curated event 29 (`ORPHANED_OST_DETECTED`): FSLogix's orphaned-OST
+  housekeeping hint now explains itself and reports as Info via a new
+  per-entry `Severity` override in the event database (Windows logs it as
+  Warning, but an orphaned OST is a regenerable cache, not a failure).
+- Curated error code `0x0000A418` (Storage Management ErrCode 42008,
+  'Cannot shrink a partition containing a volume with errors'): VHD Disk
+  Compaction skips containers whose inner NTFS volume has filesystem
+  errors - with chkdsk-based repair guidance. Observed in the field during
+  the v1.1.x rollout.
+- `Get-FslEventSummary`: new `AlertMessages` (breakdown of only the
+  alert-worthy messages) and `CuratedSeverity` properties.
+
+### Changed
+
+- Mixed buckets (real failures plus known-benign noise sharing one error
+  code or event ID) now lead the evidence with the alert-worthy messages;
+  noise is summarized behind them. Previously a single real failure could
+  hide behind '(+N more message patterns)' when the noise dominated the
+  top-3 counts.
+
 ## [1.1.1] - 2026-07-20
 
 ### Fixed

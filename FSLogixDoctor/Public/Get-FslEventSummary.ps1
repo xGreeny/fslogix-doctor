@@ -98,25 +98,41 @@ function Get-FslEventSummary {
 
             # Generic-error IDs (notably event 26) reuse one ID for many different
             # messages; classify each message so known-benign noise can be told
-            # apart from real failures, and expose the distinct messages.
+            # apart from real failures. AlertMessages carries only the
+            # alert-worthy breakdown - in a mixed bucket the one real message
+            # must never drown in the noise counts.
             $messages = @($sorted | ForEach-Object { $_.Message })
-            $benignCount = @($messages | Where-Object { Test-FslBenignMessage -Message $_ }).Count
+            $benignCount = 0
+            $alertRaw = New-Object System.Collections.Generic.List[string]
+            foreach ($messageText in $messages) {
+                if (-not $messageText) { continue }
+                if (Test-FslBenignMessage -Message $messageText) { $benignCount++ }
+                else { $alertRaw.Add($messageText) }
+            }
             $topMessages = @(Get-FslMessageBreakdown -Message $messages)
+            $alertMessages = @(Get-FslMessageBreakdown -Message $alertRaw.ToArray() -Top 5)
+
+            # A curated entry may pin the severity (e.g. housekeeping events that
+            # Windows logs as Warning but that only carry an FYI).
+            $curatedSeverity = $null
+            if ($known -and $known.ContainsKey('Severity')) { $curatedSeverity = [string]$known.Severity }
 
             [pscustomobject]@{
-                PSTypeName     = 'FSLogixDoctor.EventSummary'
-                ComputerName   = $computer
-                EventId        = [int]$group.Name
-                Count          = $group.Count
-                BenignCount    = $benignCount
-                Level          = ($sorted | Select-Object -Last 1).LevelDisplayName
-                LevelValue     = $mostSevereLevel
-                Meaning        = $meaning
-                Recommendation = $recommendation
-                FirstSeen      = ($sorted | Select-Object -First 1).TimeCreated
-                LastSeen       = ($sorted | Select-Object -Last 1).TimeCreated
-                SampleMessage  = $sample
-                TopMessages    = $topMessages
+                PSTypeName      = 'FSLogixDoctor.EventSummary'
+                ComputerName    = $computer
+                EventId         = [int]$group.Name
+                Count           = $group.Count
+                BenignCount     = $benignCount
+                Level           = ($sorted | Select-Object -Last 1).LevelDisplayName
+                LevelValue      = $mostSevereLevel
+                CuratedSeverity = $curatedSeverity
+                Meaning         = $meaning
+                Recommendation  = $recommendation
+                FirstSeen       = ($sorted | Select-Object -First 1).TimeCreated
+                LastSeen        = ($sorted | Select-Object -Last 1).TimeCreated
+                SampleMessage   = $sample
+                TopMessages     = $topMessages
+                AlertMessages   = $alertMessages
             }
         }
     }

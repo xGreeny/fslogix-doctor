@@ -114,7 +114,46 @@ Describe 'Invoke-FslDiagnostic' {
             $logFinding = @($findings | Where-Object { $_.Category -eq 'LogFile' -and $_.Check -like '*0x00000005*' })
             $logFinding[0].Message | Should -Match '^1x'
             $logFinding[0].Message | Should -Match '1 known-benign noise line'
-            $logFinding[0].Evidence | Should -Match 'Messages:'
+            $logFinding[0].Evidence | Should -Match 'Alert-worthy:'
+        }
+
+        It 'leads the log evidence with the alert-worthy message even when noise dominates' {
+            Mock Get-FslLogError -ModuleName FSLogixDoctor {
+                $noise = 1..10 | ForEach-Object {
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000005'; Message = "Import group policy Status key failed (Zugriff verweigert)"; Benign = $true; File = 'C:\logs\Profile-1.log'; LineNumber = $_ }
+                }
+                $noise + @(
+                    [pscustomobject]@{ Timestamp = Get-Date; Component = 'Profile'; Level = 'ERROR'; ErrorCode = '0x00000005'; Message = 'Failed to attach VHD (Access is denied.)'; Benign = $false; File = 'C:\logs\Profile-1.log'; LineNumber = 99 }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $logFinding = @($findings | Where-Object { $_.Category -eq 'LogFile' -and $_.Check -like '*0x00000005*' })
+            $logFinding[0].Evidence | Should -Match '^Alert-worthy: 1x Failed to attach VHD'
+            $logFinding[0].Evidence | Should -Not -Match 'Alert-worthy:.*Import group policy'
+        }
+
+        It 'leads the event evidence with the alert-worthy message in mixed buckets' {
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; EventId = 26; Count = 69; BenignCount = 68; Level = 'Fehler'; LevelValue = 2; CuratedSeverity = $null; Meaning = 'Generic error record'; Recommendation = 'n/a'; FirstSeen = (Get-Date).AddHours(-3); LastSeen = Get-Date; SampleMessage = 'noise'; TopMessages = @('24x Failed to query activity id for session # (Falscher Parameter.)'); AlertMessages = @('1x Volume optimization failed, Path: C:\x.vhdx') }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $eventFinding = @($findings | Where-Object Category -eq 'EventLog')
+            $eventFinding[0].Evidence | Should -Match 'Alert-worthy: 1x Volume optimization failed'
+            $eventFinding[0].Evidence | Should -Match 'Plus 68x known-benign noise'
+        }
+
+        It 'honors the curated severity override for housekeeping events' {
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
+                @(
+                    [pscustomobject]@{ ComputerName = 'HOST'; EventId = 29; Count = 2; BenignCount = 0; Level = 'Warnung'; LevelValue = 3; CuratedSeverity = 'Info'; Meaning = 'Orphaned OST housekeeping'; Recommendation = 'Delete the orphaned OST'; FirstSeen = (Get-Date).AddHours(-1); LastSeen = Get-Date; SampleMessage = 'Orphaned OST file(s) found.'; TopMessages = @('2x Orphaned OST file(s) found. Username: user#'); AlertMessages = @('2x Orphaned OST file(s) found. Username: user#') }
+                )
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $eventFinding = @($findings | Where-Object Category -eq 'EventLog')
+            $eventFinding[0].Severity | Should -Be 'Info'
+            $eventFinding[0].Message | Should -Match 'Orphaned OST'
         }
 
         It 'downgrades Critical log findings to Warning when every session attached cleanly' {
