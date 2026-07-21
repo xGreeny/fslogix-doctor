@@ -30,7 +30,10 @@ function Invoke-FslDiagnostic {
     .PARAMETER IncludeWarnings
         Also surface WARN-level log lines, not only errors.
     .PARAMETER ReportPath
-        When set, additionally writes the HTML report to this path.
+        Where to write the HTML report. When omitted, a report is still written
+        automatically to %ProgramData%\FSLogixDoctor\Reports (timestamped); the
+        findings stay the pipeline output and the path travels in the summary
+        and verbose stream. Disable the automatic report with -NoReport.
     .PARAMETER PassThru
         Emit the finding objects even when -ReportPath is used.
     .PARAMETER ComputerName
@@ -49,21 +52,29 @@ function Invoke-FslDiagnostic {
         Like -AsSummary, but returns the summary serialized as JSON - made for
         RMM/monitoring sensors (PRTG, Zabbix, scheduled tasks).
     .PARAMETER HistoryPath
-        Opt-in run history (the module stays read-only unless you ask): each run
-        is written as JSON to this folder and diffed against the previous run of
-        the same scope. Findings get a ChangeStatus (New/Persisting/Resolved),
-        alert-worthy messages are annotated ('New since the last run', 'seen in
-        N consecutive runs'), vanished Critical/Warning findings come back as
-        'Resolved' Info findings, and the summary/report gain change counts.
+        Run-history folder; defaults to %ProgramData%\FSLogixDoctor\History and
+        is active by default (disable with -NoHistory; an explicitly bound
+        -HistoryPath always wins). Each run is written as JSON and diffed
+        against the previous run of the same scope: findings get a ChangeStatus
+        (New/Persisting/Resolved), alert-worthy messages are annotated, vanished
+        Critical/Warning findings come back as 'Resolved' Info findings, and
+        the summary/report gain change counts.
     .PARAMETER IncludeProfileStore
-        Also scan the profile store: containers at >=85% of their maximum size
-        become Warnings (>=95% Critical - FSLogix's own event 33 only fires
-        below 200 MB free), and structural anomalies (leftover/multi-disk
-        folders) become findings. Uses the local VHDLocations unless
-        -ProfileStorePath is given. In fleet mode the scan runs once from the
-        coordinating machine, not per host.
+        Force the profile store scan. Normally unnecessary: when neither this
+        switch nor -ProfileStorePath is given, the store path is auto-detected
+        from VHDLocations (locally, or from the first reachable fleet host) and
+        scanned automatically. Containers at >=85% of their maximum size become
+        Warnings (>=95% Critical), structural anomalies become findings. The
+        scan runs once from the coordinating machine, not per host.
     .PARAMETER ProfileStorePath
-        Profile share path(s) for the store scan; implies -IncludeProfileStore.
+        Explicit profile share path(s) for the store scan; overrides the
+        auto-detection.
+    .PARAMETER NoProfileStore
+        Skip the automatic profile store scan (e.g. on very large shares).
+    .PARAMETER NoHistory
+        Skip the automatic run history.
+    .PARAMETER NoReport
+        Skip the automatic HTML report.
     .EXAMPLE
         Invoke-FslDiagnostic
 
@@ -79,10 +90,11 @@ function Invoke-FslDiagnostic {
 
         Monitoring wrapper: exit 0 = healthy, 1 = warnings, 2 = critical.
     .EXAMPLE
-        Invoke-FslDiagnostic -HistoryPath C:\ProgramData\FSLogixDoctor\History -ProfileStorePath \\fs01\fslogix$
+        Invoke-FslDiagnostic -ComputerName avd-0, avd-1
 
-        Daily driver: store capacity included, and every finding says whether
-        it is new, persisting or resolved compared to yesterday.
+        The daily driver needs nothing else: the store path is auto-detected,
+        the run history diffs against yesterday, and the HTML report lands in
+        %ProgramData%\FSLogixDoctor\Reports - all without further parameters.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -104,11 +116,17 @@ function Invoke-FslDiagnostic {
 
         [switch]$AsJson,
 
-        [string]$HistoryPath,
+        [string]$HistoryPath = (Join-Path $env:ProgramData 'FSLogixDoctor\History'),
 
         [switch]$IncludeProfileStore,
 
-        [string[]]$ProfileStorePath = @()
+        [string[]]$ProfileStorePath = @(),
+
+        [switch]$NoProfileStore,
+
+        [switch]$NoHistory,
+
+        [switch]$NoReport
     )
 
     $findings = New-Object System.Collections.Generic.List[object]
@@ -120,14 +138,23 @@ function Invoke-FslDiagnostic {
             $hostFindings = @()
             if ($computer -in @($env:COMPUTERNAME, 'localhost', '.')) {
                 Write-Verbose ("Fleet: running locally on {0}..." -f $env:COMPUTERNAME)
-                $hostFindings = @(Invoke-FslDiagnostic -Hours $Hours -LogPath $LogPath -IncludeWarnings:$IncludeWarnings)
+                # Per-host runs collect findings only - store scan, history and
+                # report happen once at the fleet level, never per host.
+                $hostFindings = @(Invoke-FslDiagnostic -Hours $Hours -LogPath $LogPath -IncludeWarnings:$IncludeWarnings -NoProfileStore -NoHistory -NoReport)
             }
             else {
                 Write-Verbose ("Fleet: running remotely on {0}..." -f $computer)
                 try {
                     $remoteFindings = @(Invoke-Command -ComputerName $computer -ErrorAction Stop -ScriptBlock {
                             Import-Module FSLogixDoctor -ErrorAction Stop
-                            Invoke-FslDiagnostic -Hours $using:Hours -IncludeWarnings:$using:IncludeWarnings
+                            $diagCommand = Get-Command Invoke-FslDiagnostic
+                            if ($diagCommand.Parameters.ContainsKey('NoReport')) {
+                                Invoke-FslDiagnostic -Hours $using:Hours -IncludeWarnings:$using:IncludeWarnings -NoProfileStore -NoHistory -NoReport
+                            }
+                            else {
+                                # Older module version on the target: no auto behaviors to suppress.
+                                Invoke-FslDiagnostic -Hours $using:Hours -IncludeWarnings:$using:IncludeWarnings
+                            }
                         })
                     # Rebuild as clean local finding objects - Invoke-Command
                     # tacks PSComputerName/RunspaceId metadata onto everything
@@ -164,32 +191,67 @@ function Invoke-FslDiagnostic {
         }
     }
 
-    # Opt-in profile store scan - runs once (on the coordinating machine in
-    # fleet mode), not per host.
+    # Profile store scan - runs once (on the coordinating machine in fleet
+    # mode), not per host. Explicit paths win; otherwise the store path is
+    # auto-detected from VHDLocations (locally, or from the first reachable
+    # fleet host) unless -NoProfileStore opts out.
     if ($IncludeProfileStore -or @($ProfileStorePath | Where-Object { $_ }).Count -gt 0) {
         Write-Verbose 'Scanning the profile store...'
         foreach ($storeFinding in @(Get-FslProfileStoreFinding -Path $ProfileStorePath)) { $findings.Add($storeFinding) }
     }
+    elseif (-not $NoProfileStore) {
+        $autoStorePaths = @(Resolve-FslProfileStorePath -ComputerName $ComputerName)
+        if ($autoStorePaths.Count -gt 0) {
+            Write-Verbose ("Auto-detected profile store: {0}" -f ($autoStorePaths -join ', '))
+            foreach ($storeFinding in @(Get-FslProfileStoreFinding -Path $autoStorePaths -SkipUnreachable)) { $findings.Add($storeFinding) }
+        }
+    }
 
-    # Opt-in run history: tag New/Persisting, resurface vanished alerts as
-    # Resolved, persist this run for the next diff.
-    if ($HistoryPath) {
+    # Run history: on by default (opt out with -NoHistory); an explicitly
+    # bound -HistoryPath always wins. Tags New/Persisting, resurfaces vanished
+    # alerts as Resolved, persists this run for the next diff.
+    $historyEnabled = ($PSBoundParameters.ContainsKey('HistoryPath') -or (-not $NoHistory))
+    if ($historyEnabled) {
         $historyScope = $env:COMPUTERNAME
         if (@($ComputerName).Count -gt 0) { $historyScope = ((@($ComputerName) | Sort-Object) -join ',') }
-        $tracked = @(Update-FslRunHistory -Finding $findings.ToArray() -HistoryPath $HistoryPath -Scope $historyScope)
-        $findings = New-Object System.Collections.Generic.List[object]
-        foreach ($trackedFinding in $tracked) { $findings.Add($trackedFinding) }
+        try {
+            $tracked = @(Update-FslRunHistory -Finding $findings.ToArray() -HistoryPath $HistoryPath -Scope $historyScope)
+            $findings = New-Object System.Collections.Generic.List[object]
+            foreach ($trackedFinding in $tracked) { $findings.Add($trackedFinding) }
+        }
+        catch {
+            Write-Warning ("Run history could not be updated ({0}) - continuing without a diff." -f $_.Exception.Message)
+        }
     }
 
     # Output: report, summary/JSON and/or pipeline.
     $severityOrder = @{ 'Critical' = 0; 'Warning' = 1; 'Info' = 2; 'Pass' = 3 }
     $sorted = @($findings | Sort-Object -Property @{ Expression = { $severityOrder[$_.Severity] } }, Category, Check)
 
-    if ($ReportPath) {
-        $report = $sorted | New-FslReport -Path $ReportPath -LookbackHours $Hours
-        Write-Verbose ("Report written to {0}" -f $report.FullName)
-        if (-not $PassThru -and -not $AsSummary -and -not $AsJson) {
-            return $report
+    # Report: on by default (opt out with -NoReport). An explicit -ReportPath
+    # keeps the classic behavior (returns the FileInfo); the automatic report
+    # goes to %ProgramData%\FSLogixDoctor\Reports and the findings stay the
+    # pipeline output - the path is carried in the summary and verbose stream.
+    $reportEnabled = ($PSBoundParameters.ContainsKey('ReportPath') -or (-not $NoReport))
+    $reportWritten = ''
+    if ($reportEnabled) {
+        $autoReport = (-not $PSBoundParameters.ContainsKey('ReportPath'))
+        $effectiveReportPath = $ReportPath
+        try {
+            if ($autoReport) {
+                $reportDir = Join-Path $env:ProgramData 'FSLogixDoctor\Reports'
+                if (-not (Test-Path -LiteralPath $reportDir)) { New-Item -ItemType Directory -Path $reportDir -Force | Out-Null }
+                $effectiveReportPath = Join-Path $reportDir ('fslogix-report-{0}.html' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+            }
+            $report = $sorted | New-FslReport -Path $effectiveReportPath -LookbackHours $Hours
+            $reportWritten = [string]$report.FullName
+            Write-Verbose ("Report written to {0}" -f $reportWritten)
+            if (-not $autoReport -and -not $PassThru -and -not $AsSummary -and -not $AsJson) {
+                return $report
+            }
+        }
+        catch {
+            Write-Warning ("Report could not be written ({0})." -f $_.Exception.Message)
         }
     }
 
@@ -219,6 +281,7 @@ function Invoke-FslDiagnostic {
             ExitCode      = $exitCode
             NewCount      = @($sorted | Where-Object { $null -ne $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'New' -and $_.Severity -in @('Critical', 'Warning') }).Count
             ResolvedCount = @($sorted | Where-Object { $null -ne $_.PSObject.Properties['ChangeStatus'] -and $_.ChangeStatus -eq 'Resolved' }).Count
+            ReportPath    = $reportWritten
             Findings      = $sorted
         }
         if ($AsJson) {

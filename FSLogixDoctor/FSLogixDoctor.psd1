@@ -1,6 +1,6 @@
 @{
     RootModule        = 'FSLogixDoctor.psm1'
-    ModuleVersion     = '1.7.0'
+    ModuleVersion     = '1.8.0'
     GUID              = 'afcd98ed-8941-4b9d-ac1b-f6891cfc2a73'
     Author            = 'Flurin Gubler'
     Copyright         = '(c) 2026 Flurin Gubler. All rights reserved.'

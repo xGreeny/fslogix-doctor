@@ -41,11 +41,12 @@ Install-Module -Name FSLogixDoctor -Scope CurrentUser
 git clone https://github.com/xGreeny/fslogix-doctor.git
 Import-Module .\fslogix-doctor\FSLogixDoctor\FSLogixDoctor.psd1
 
-# Full health diagnostic of a session host, findings on the pipeline:
+# Full health diagnostic - store scan, run history and HTML report included
+# automatically (report lands in %ProgramData%\FSLogixDoctor\Reports):
 Invoke-FslDiagnostic
 
-# Same, but as a self-contained HTML report you can attach to a ticket:
-Invoke-FslDiagnostic -Hours 8 -ReportPath .\fslogix-report.html
+# Whole fleet, one merged report at a path of your choice:
+Invoke-FslDiagnostic -ComputerName avd-0, avd-1 -ReportPath .\fleet.html
 ```
 
 **[View a sample report](samples/sample-report.html)** (synthetic lab data) -
@@ -68,7 +69,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 | Function | What it answers | Run on |
 |---|---|---|
-| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - all checks below, one command, optional HTML report; fleet mode via `-ComputerName` (incl. config-drift detection), monitoring output via `-AsSummary`/`-AsJson`, run history and new/persisting/resolved diffs via `-HistoryPath`, store capacity checks via `-ProfileStorePath` | session host or admin box |
+| `Invoke-FslDiagnostic` | "What is wrong with FSLogix on this host?" - every check below in one zero-parameter command: store scan (auto-detected), run history with new/persisting/resolved diffs and HTML report happen automatically; fleet mode via `-ComputerName` (incl. config-drift detection), monitoring output via `-AsSummary`/`-AsJson`; opt-outs `-NoProfileStore`/`-NoHistory`/`-NoReport` | session host or admin box |
 | `Get-FslErrorCode` | "What does `0x00000020` mean and how do I fix it?" | anywhere |
 | `Get-FslSessionState` | "Why did this user get a temp profile?" - translated Status/Reason/Error per session | session host |
 | `Get-FslLogError` | Structured WARN/ERROR entries from the FSLogix text logs, codes extracted and normalized (incl. HRESULT form) | session host |
@@ -84,9 +85,12 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 ## Design principles
 
-- **Read-only by default.** Nothing in this module mutates a system. Where a
-  fix is obvious (e.g. releasing a stale SMB handle), the output hands you the
-  exact command including `-Confirm` - executing it stays a human decision.
+- **Read-only diagnostics.** Nothing in this module mutates FSLogix or Windows
+  state; the only writes are the module's own artifacts - run history and HTML
+  reports under `%ProgramData%\FSLogixDoctor` (opt out with `-NoHistory` /
+  `-NoReport`). Where a fix is obvious, the output hands you the exact command
+  including `-Confirm` - executing it stays a human decision, and the `-Fix`
+  companions are WhatIf-first.
 - **Trustworthy explanations.** Every database entry links its source and is
   flagged verified (Microsoft docs) or community-observed. Unknown codes fall
   back to the generic Win32 message instead of guessing.
@@ -94,7 +98,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 193 Pester tests against
+- **Tested like software, not like a script dump.** 196 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.

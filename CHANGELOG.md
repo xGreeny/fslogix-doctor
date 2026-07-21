@@ -6,6 +6,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-20
+
+### Changed
+
+- **Zero-parameter daily driver**: `Invoke-FslDiagnostic` now does everything
+  by default - the profile store path is auto-detected from VHDLocations
+  (locally, or from the first reachable fleet host) and scanned, the run
+  history is on by default under `%ProgramData%\FSLogixDoctor\History`, and
+  a timestamped HTML report lands in `%ProgramData%\FSLogixDoctor\Reports`
+  automatically (path in the summary's new `ReportPath` property and the
+  verbose stream). Opt out per feature with `-NoProfileStore`, `-NoHistory`
+  and `-NoReport`; explicit `-ProfileStorePath`/`-HistoryPath`/`-ReportPath`
+  behave as before (an explicit -ReportPath still returns the FileInfo).
+- Fleet runs suppress the automatic behaviors on the per-host legs (store
+  scan, history and report happen once at the fleet level, never per host),
+  including a compatibility guard for older module versions on the targets.
+- Auto-detected store scans skip unreachable shares quietly (verbose only);
+  explicitly requested scans keep reporting a Warning finding. History and
+  report writes fail soft with a warning (e.g. without admin rights) instead
+  of breaking the diagnostic.
+- The 'read-only by default' promise now reads precisely: diagnostics never
+  change FSLogix or Windows state; the module's only writes are its own
+  artifacts (history and reports) under `%ProgramData%\FSLogixDoctor`.
+
 ## [1.7.0] - 2026-07-20
 
 ### Added

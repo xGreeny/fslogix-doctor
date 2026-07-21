@@ -11,7 +11,11 @@ function Get-FslProfileStoreFinding {
     [OutputType([pscustomobject])]
     param(
         [AllowEmptyCollection()]
-        [string[]]$Path = @()
+        [string[]]$Path = @(),
+
+        # Auto-detected scans skip unreachable stores quietly (verbose only);
+        # explicitly requested scans keep reporting a Warning finding.
+        [switch]$SkipUnreachable
     )
 
     $storePaths = @($Path | Where-Object { $_ })
@@ -33,9 +37,14 @@ function Get-FslProfileStoreFinding {
             $disks = @(Get-FslProfileReport -Path $storePath -ErrorAction Stop)
         }
         catch {
-            New-FslFinding -Category ProfileStore -Check 'Profile store scan' -Severity Warning -Target $storePath `
-                -Message ("Could not scan profile store '{0}': {1}" -f $storePath, $_.Exception.Message) `
-                -Recommendation 'Verify the account running the diagnostic can browse the share (on Azure Files: Storage File Data SMB Share Elevated Contributor).'
+            if ($SkipUnreachable) {
+                Write-Verbose ("Auto store scan skipped for '{0}': {1}" -f $storePath, $_.Exception.Message)
+            }
+            else {
+                New-FslFinding -Category ProfileStore -Check 'Profile store scan' -Severity Warning -Target $storePath `
+                    -Message ("Could not scan profile store '{0}': {1}" -f $storePath, $_.Exception.Message) `
+                    -Recommendation 'Verify the account running the diagnostic can browse the share (on Azure Files: Storage File Data SMB Share Elevated Contributor).'
+            }
             continue
         }
 

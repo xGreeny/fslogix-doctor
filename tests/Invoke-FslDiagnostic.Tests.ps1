@@ -31,6 +31,17 @@ Describe 'Invoke-FslDiagnostic' {
         # Context events come from the real Application/System logs of whatever
         # machine runs the tests - always mock them for determinism.
         Mock Get-FslContextEvent -ModuleName FSLogixDoctor { @() }
+        # v1.8.0 auto behaviors would touch the real machine (registry-derived
+        # store scan, ProgramData history/report) - neutralize them for every
+        # test; the dedicated contexts re-enable what they exercise.
+        Mock Resolve-FslProfileStorePath -ModuleName FSLogixDoctor { @() }
+        $PSDefaultParameterValues['Invoke-FslDiagnostic:NoHistory'] = $true
+        $PSDefaultParameterValues['Invoke-FslDiagnostic:NoReport'] = $true
+    }
+
+    AfterAll {
+        $PSDefaultParameterValues.Remove('Invoke-FslDiagnostic:NoHistory')
+        $PSDefaultParameterValues.Remove('Invoke-FslDiagnostic:NoReport')
     }
 
     It 'aggregates findings from every category' {
@@ -327,6 +338,34 @@ Describe 'Invoke-FslDiagnostic' {
             $summary.ExitCode | Should -Be 0
             $summary.CriticalCount | Should -Be 0
             $summary.WarningCount | Should -Be 0
+        }
+    }
+
+    Context 'automatic defaults' {
+
+        It 'auto-detects and scans the profile store when no path is given' {
+            Mock Resolve-FslProfileStorePath -ModuleName FSLogixDoctor { @('\\fs\auto-share') }
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ Folder = '\\fs\auto-share\u_S-1'; Disk = '\\fs\auto-share\u_S-1\Profile_u.VHDX'; UserName = 'u.ser'; SizeGB = 50; PercentOfMax = 96; LastModified = (Get-Date); DiskCount = 1; Anomaly = $null })
+            }
+            $findings = @(Invoke-FslDiagnostic)
+            $capacity = @($findings | Where-Object Check -eq 'Container capacity')
+            $capacity.Count | Should -Be 1
+            $capacity[0].Severity | Should -Be 'Critical'
+        }
+
+        It 'skips the store scan with -NoProfileStore' {
+            Mock Resolve-FslProfileStorePath -ModuleName FSLogixDoctor { @('\\fs\auto-share') }
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor { throw 'must not be called' }
+            $findings = @(Invoke-FslDiagnostic -NoProfileStore)
+            @($findings | Where-Object Category -eq 'ProfileStore') | Should -BeNullOrEmpty
+        }
+
+        It 'records the written report path in the summary' {
+            $reportFile = Join-Path $TestDrive 'summary-report.html'
+            $summary = Invoke-FslDiagnostic -ReportPath $reportFile -AsSummary
+            $summary.ReportPath | Should -Match 'summary-report\.html'
+            Test-Path $reportFile | Should -BeTrue
         }
     }
 
