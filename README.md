@@ -11,9 +11,13 @@ translates every cryptic FSLogix error code into a cause and a fix.**
 
 It is 2 a.m., a login storm is running, and the only clues are
 `[ERROR:00000020]` in a text log, `Status=12` in some registry key, and an
-event 26 that means five different things. FSLogixDoctor reads all three
-sources, translates them against a curated, source-linked database, and tells
-you what is wrong in plain English - read-only, no agent, no telemetry.
+event 26 that means five different things. FSLogixDoctor reads every source
+that matters - configuration, per-session state, the FSLogix text logs and
+event channels, the surrounding Windows logs and the profile store itself -
+translates them against curated, source-linked databases, correlates symptom
+with cause, and tells you what is wrong in plain English. And because it
+remembers yesterday's run, it tells you what is *newly* broken, not just what
+is broken. Read-only diagnostics, no agent, no telemetry.
 
 ```powershell
 PS> Get-FslErrorCode 0x00000020
@@ -47,22 +51,28 @@ Invoke-FslDiagnostic
 
 # Whole fleet, one merged report at a path of your choice:
 Invoke-FslDiagnostic -ComputerName avd-0, avd-1 -ReportPath .\fleet.html
+
+# RMM/monitoring sensor: exit 0 = healthy, 1 = warnings, 2 = critical
+$r = Invoke-FslDiagnostic -AsSummary -NoReport; exit $r.ExitCode
 ```
 
 **[View a sample report](samples/sample-report.html)** (synthetic lab data) -
 download and open locally, or view it rendered via
 [htmlpreview](https://htmlpreview.github.io/?https://github.com/xGreeny/fslogix-doctor/blob/main/samples/sample-report.html).
 
-## The error-code reference
+## The curated databases
 
-The heart of this project is a curated database of FSLogix **status codes**,
-**reason codes**, **Windows error codes** and **event IDs** - each with meaning,
-likely causes, concrete fixes and a link to the source. Where Microsoft
-documents a code, the entry is marked verified; community-observed entries are
-labeled as such.
+The heart of this project is a set of six curated, field-validated databases:
+FSLogix **status codes**, **reason codes**, **Windows error codes** and
+**event IDs**, plus the **profile-related events from the surrounding Windows
+logs** (User Profile Service, NTFS, disk) and the **known-benign noise
+patterns** the diagnostic suppresses so real findings stand out. Every entry
+carries meaning, likely causes, concrete fixes and a link to the source; where
+Microsoft documents a code, the entry is marked verified, and
+community-observed entries are labeled as such.
 
-**Browse it here: [docs/error-codes.md](docs/error-codes.md)** - or query it
-from PowerShell with `Get-FslErrorCode` (hex, decimal, integer or symbolic
+**Browse it all here: [docs/error-codes.md](docs/error-codes.md)** - or query
+it from PowerShell with `Get-FslErrorCode` (hex, decimal, integer or symbolic
 name) and `Get-FslSessionState` (translated per-session state).
 
 ## What's inside
@@ -75,7 +85,7 @@ name) and `Get-FslSessionState` (translated per-session state).
 | `Get-FslLogError` | Structured WARN/ERROR entries from the FSLogix text logs, codes extracted and normalized (incl. HRESULT form) | session host |
 | `Get-FslEventSummary` | FSLogix event channels bucketed by ID and explained | session host |
 | `Get-FslContextEvent` | Curated profile-related events from the surrounding Windows logs (User Profile Service, NTFS, disk) | session host |
-| `Test-FslConfiguration` | Misconfigurations that cause temp profiles, login hangs and data loss - 15+ rules distilled from real troubleshooting | session host |
+| `Test-FslConfiguration` | Misconfigurations that cause temp profiles, login hangs and data loss - 20+ rules distilled from real troubleshooting | session host |
 | `Get-FslProfileReport` | Size, age and structural anomalies of every container on a share - without mounting anything | anywhere with share access |
 | `Get-FslOrphanedDisk` | "Which containers belong to deleted/disabled users, and how many GB do I get back?" | anywhere with share access |
 | `Get-FslLockedProfile` | "Who is holding this VHDX open?" - stale SMB handles behind 'profile in use' | file server |
@@ -107,14 +117,20 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 - Windows PowerShell 5.1 or PowerShell 7+ on Windows
 - FSLogix installed on the target session host (for the host-side checks)
+- Write access to `%ProgramData%\FSLogixDoctor` for the automatic run history
+  and reports (they fail soft with a warning without it - the diagnostics
+  themselves need no write access)
 - Optional: `ActiveDirectory` module for disabled-account detection,
   SMB cmdlets on the file server for `Get-FslLockedProfile`
 
 ## Roadmap
 
 - [x] On the [PowerShell Gallery](https://www.powershellgallery.com/packages/FSLogixDoctor) (since v1.2.0)
+- [x] `-Fix` companions (explicit, `-WhatIf`-first): `Remove-FslOrphanedOst` (v1.4.0), `Remove-FslOrphanedDisk` (v1.6.0)
+- [ ] Built-in retention for the run history (rotate old `run-*.json` files)
+- [ ] More context channels as the field demands them (SMB client, Winlogon)
+- [ ] Cross-correlate event 33 with the store scan ("VHDX resized but the partition inside was not extended")
 - [ ] `Get-FslProfileReport`: parallel scanning for multi-TB shares
-- [x] Optional `-Fix` companions (explicit, `-WhatIf`-first) - first one: `Remove-FslOrphanedOst` (v1.4.0)
 - [ ] Cloud Cache (CCD) health checks
 - [ ] More error codes - contribute the ones you have diagnosed!
 

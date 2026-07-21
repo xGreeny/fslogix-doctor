@@ -13,6 +13,8 @@ $dataDir = Join-Path $PSScriptRoot '..\FSLogixDoctor\Data'
 $sessionCodes = Import-PowerShellDataFile (Join-Path $dataDir 'SessionCodes.psd1')
 $errorCodes = Import-PowerShellDataFile (Join-Path $dataDir 'ErrorCodes.psd1')
 $eventIds = Import-PowerShellDataFile (Join-Path $dataDir 'EventIds.psd1')
+$contextEvents = Import-PowerShellDataFile (Join-Path $dataDir 'ContextEvents.psd1')
+$benignPatterns = Import-PowerShellDataFile (Join-Path $dataDir 'BenignPatterns.psd1')
 
 $sb = New-Object System.Text.StringBuilder
 
@@ -22,13 +24,14 @@ $null = $sb.AppendLine(@'
 Plain-English meaning, likely causes and concrete fixes for the codes FSLogix
 writes to its logs (`%ProgramData%\FSLogix\Logs`), to the per-session registry
 state (`HKLM\SOFTWARE\FSLogix\Profiles\Sessions\<SID>`) and to the
-`Microsoft-FSLogix-Apps` event channels.
+`Microsoft-FSLogix-Apps` event channels - plus the curated profile-related
+events from the surrounding Windows logs and the known-benign noise patterns
+the diagnostic suppresses.
 
 Decode any code straight from PowerShell:
 
 ```powershell
-git clone https://github.com/xGreeny/fslogix-doctor.git
-Import-Module .\fslogix-doctor\FSLogixDoctor\FSLogixDoctor.psd1
+Install-Module -Name FSLogixDoctor -Scope CurrentUser
 
 Get-FslErrorCode 0x00000020    # hex, decimal, int or symbolic name
 Get-FslSessionState            # translated Status/Reason/Error per session
@@ -118,6 +121,43 @@ message text, not just the ID. On any host with FSLogix installed you can dump
 the authoritative per-version list with:
 `(Get-WinEvent -ListProvider 'Microsoft-FSLogix-Apps').Events | Select-Object Id, Description`.
 '@ -Table $eventIds -KeySort { [int]$_ } -KeyLabel 'Event'
+
+# Context events are an array of entries; reshape into the hashtable form
+# Add-Section expects and carry the curated severity into the meaning.
+$contextTable = @{}
+foreach ($contextEntry in $contextEvents.Events) {
+    $key = '{0} in the {1} log ({2})' -f $contextEntry.Id, $contextEntry.LogName, $contextEntry.Label
+    $contextTable[$key] = @{
+        Meaning  = ('{0} (Curated severity: {1}.)' -f $contextEntry.Meaning, $contextEntry.Severity)
+        Causes   = $contextEntry.Causes
+        Fixes    = $contextEntry.Fixes
+        Source   = $contextEntry.Source
+        Verified = $contextEntry.Verified
+    }
+}
+
+Add-Section -Title 'Context events (surrounding Windows logs)' -Intro @'
+The profile-related events from the Windows logs AROUND FSLogix - queried by
+`Get-FslContextEvent` and correlated with the FSLogix findings by
+`Invoke-FslDiagnostic`: the temp-profile chain, registry-handle leaks at
+logoff, undeletable profile directories, NTFS corruption and disk-level I/O
+trouble. Provider-filtered, so foreign events with the same ID never match.
+'@ -Table $contextTable -KeySort { [int]($_ -split ' ')[0] } -KeyLabel 'Event'
+
+$null = $sb.AppendLine('## Known-benign noise patterns')
+$null = $sb.AppendLine('')
+$null = $sb.AppendLine(@'
+FSLogix logs several messages at ERROR level that are documented or widely
+observed as harmless on healthy hosts. The diagnostic classifies these per
+MESSAGE (never per error code) and reports all-noise buckets as Info instead
+of Critical - a match never hides a finding, it downgrades severity and says
+why.
+'@)
+$null = $sb.AppendLine('')
+foreach ($pattern in $benignPatterns.Patterns) {
+    $null = $sb.AppendLine(('- `{0}` - {1}' -f $pattern.Pattern, (ConvertTo-SafeMarkdown $pattern.Reason)))
+}
+$null = $sb.AppendLine('')
 
 $resolved = $OutputPath
 if (-not [System.IO.Path]::IsPathRooted($resolved)) { $resolved = Join-Path (Get-Location).Path $resolved }
