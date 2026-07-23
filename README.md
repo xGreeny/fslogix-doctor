@@ -56,9 +56,15 @@ Invoke-FslDiagnostic -ComputerName avd-0, avd-1 -ReportPath .\fleet.html
 $r = Invoke-FslDiagnostic -AsSummary -NoReport; exit $r.ExitCode
 ```
 
-**[View a sample report](samples/sample-report.html)** (synthetic lab data) -
-download and open locally, or view it rendered via
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/report-dark.png">
+  <img alt="FSLogixDoctor HTML report: verdict, severity tiles and the action-items table - severity always encoded as glyph, label and color" src="docs/img/report-light.png">
+</picture>
+
+**[View the full sample report](samples/sample-report.html)** (synthetic lab
+data) - download and open locally, or view it rendered via
 [htmlpreview](https://htmlpreview.github.io/?https://github.com/xGreeny/fslogix-doctor/blob/main/samples/sample-report.html).
+The report follows your OS theme - the screenshot above does too.
 
 ## The curated databases
 
