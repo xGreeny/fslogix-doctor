@@ -1,0 +1,33 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  psgallery:
+    name: PowerShell Gallery
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish to the PowerShell Gallery
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          $manifest = Test-ModuleManifest ./FSLogixDoctor/FSLogixDoctor.psd1
+          $version = $manifest.Version.ToString()
+          if (-not (Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSResourceRepository -PSGallery
+          }
+          # Idempotent: re-runs and manual dispatches never fail on an
+          # already-published version.
+          $published = Find-PSResource -Name FSLogixDoctor -Repository PSGallery -ErrorAction SilentlyContinue
+          if ($published -and ([version]$published.Version -ge $manifest.Version)) {
+            Write-Host "FSLogixDoctor $version is already on the PowerShell Gallery - nothing to publish."
+            return
+          }
+          Publish-PSResource -Path ./FSLogixDoctor -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY
+          Write-Host "Published FSLogixDoctor $version to the PowerShell Gallery."
