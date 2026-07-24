@@ -15,7 +15,13 @@ function Get-FslProfileStoreFinding {
 
         # Auto-detected scans skip unreachable stores quietly (verbose only);
         # explicitly requested scans keep reporting a Warning finding.
-        [switch]$SkipUnreachable
+        [switch]$SkipUnreachable,
+
+        # Disk paths from event-33 findings: a container that FSLogix reports
+        # as nearly full but the store sees far below 85% is the classic
+        # 'VHDX resized without extending the partition inside' case.
+        [AllowEmptyCollection()]
+        [string[]]$CrossCheckPath = @()
     )
 
     $storePaths = @($Path | Where-Object { $_ })
@@ -73,9 +79,41 @@ function Get-FslProfileStoreFinding {
                 -Recommendation 'Verify, then clean up: Get-FslOrphanedDisk classifies ownerless disks against the identity infrastructure; Remove-FslOrphanedDisk archives or deletes confirmed leftovers (WhatIf-first).'
         }
 
+        foreach ($checkPath in $CrossCheckPath) {
+            $crossMatch = $disks | Where-Object { [string]$_.Disk -eq $checkPath -and $null -ne $_.PercentOfMax -and [double]$_.PercentOfMax -lt 85 } |
+                Select-Object -First 1
+            if ($crossMatch) {
+                $flagged = $true
+                $crossLabel = [string]$crossMatch.UserName
+                if (-not $crossLabel) { $crossLabel = Split-Path ([string]$crossMatch.Folder) -Leaf }
+                New-FslFinding -Category ProfileStore -Check 'Resize incomplete' -Severity Warning -Target $crossLabel `
+                    -Message ("Event 33 reports this container below 200 MB free, but the store sees it at only {0}% of its maximum - the classic sign that the VHDX was resized without extending the partition INSIDE." -f $crossMatch.PercentOfMax) `
+                    -Evidence ("Disk: {0} ({1} GB)." -f $crossMatch.Disk, $crossMatch.SizeGB) `
+                    -Recommendation 'With the user signed out: Mount-VHD, Resize-Partition to the supported maximum, dismount. Event 33 stops at the next logon once the volume inside actually has room.'
+            }
+        }
+
         if (-not $flagged) {
             New-FslFinding -Category ProfileStore -Check 'Profile store' -Severity Pass -Target $storePath `
                 -Message ("Scanned {0} container(s) on '{1}': no capacity or structural findings." -f $disks.Count, $storePath)
+        }
+
+        # Metrics travel alongside the findings (separated by PSTypeName) so
+        # the caller can persist them for the capacity forecast.
+        $diskMetrics = @()
+        foreach ($disk in $disks) {
+            if (-not $disk.Disk -or $null -eq $disk.PercentOfMax) { continue }
+            $diskMetrics += [pscustomobject]@{
+                Disk         = [string]$disk.Disk
+                UserName     = [string]$disk.UserName
+                SizeGB       = [double]$disk.SizeGB
+                PercentOfMax = [double]$disk.PercentOfMax
+            }
+        }
+        [pscustomobject]@{
+            PSTypeName = 'FSLogixDoctor.StoreMetric'
+            StorePath  = [string]$storePath
+            Disks      = $diskMetrics
         }
     }
 }

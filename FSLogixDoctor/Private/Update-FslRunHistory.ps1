@@ -20,7 +20,16 @@ function Update-FslRunHistory {
         [string]$HistoryPath,
 
         [Parameter(Mandatory)]
-        [string]$Scope
+        [string]$Scope,
+
+        # Per-container store measurements of THIS run; persisted with the run
+        # record and compared against the oldest retained run for the capacity
+        # forecast.
+        [AllowEmptyCollection()]
+        [object[]]$StoreMetric = @(),
+
+        [ValidateRange(1, 3650)]
+        [int]$RetentionDays = 90
     )
 
     if (-not (Test-Path -LiteralPath $HistoryPath)) {
@@ -37,12 +46,22 @@ function Update-FslRunHistory {
         $sha.Dispose()
     }
 
+    $scopeFiles = @(Get-ChildItem -LiteralPath $HistoryPath -Filter ("run-{0}-*.json" -f $scopeHash) -File -ErrorAction SilentlyContinue |
+            Sort-Object Name)
     $previous = $null
-    $previousFile = Get-ChildItem -LiteralPath $HistoryPath -Filter ("run-{0}-*.json" -f $scopeHash) -File -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending | Select-Object -First 1
+    $previousFile = $scopeFiles | Select-Object -Last 1
     if ($previousFile) {
         try { $previous = Get-Content -LiteralPath $previousFile.FullName -Raw | ConvertFrom-Json }
         catch { Write-Warning ("History file '{0}' could not be read - continuing without a diff." -f $previousFile.Name) }
+    }
+
+    # Capacity-forecast baseline: the OLDEST retained run that carries store
+    # metrics - a long measurement window keeps the growth rate stable.
+    $baseline = $null
+    foreach ($scopeFile in $scopeFiles) {
+        try { $candidate = Get-Content -LiteralPath $scopeFile.FullName -Raw | ConvertFrom-Json }
+        catch { continue }
+        if ($candidate.StoreMetrics -and @($candidate.StoreMetrics).Count -gt 0) { $baseline = $candidate; break }
     }
 
     $prevMap = @{}
@@ -103,13 +122,65 @@ function Update-FslRunHistory {
         }
     }
 
+    # Capacity forecast: compare this run's store metrics against the oldest
+    # retained run. Requires at least a day of history so hourly sensor runs
+    # never produce noise rates; forecast findings are recomputed every run
+    # and deliberately not persisted.
+    if (@($StoreMetric).Count -gt 0 -and $baseline -and $baseline.StoreMetrics) {
+        $baselineTime = $null
+        try { $baselineTime = [datetime]::Parse([string]$baseline.Timestamp, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) }
+        catch { $baselineTime = $null }
+        $deltaDays = 0.0
+        if ($baselineTime) { $deltaDays = ((Get-Date) - $baselineTime).TotalDays }
+        if ($deltaDays -ge 1) {
+            $baselineByDisk = @{}
+            foreach ($oldMetric in $baseline.StoreMetrics) { $baselineByDisk[[string]$oldMetric.Disk] = $oldMetric }
+            foreach ($currentMetric in $StoreMetric) {
+                $oldMetric = $baselineByDisk[[string]$currentMetric.Disk]
+                if (-not $oldMetric) { continue }
+                if ([double]$currentMetric.PercentOfMax -le 0) { continue }
+                $growthGB = [double]$currentMetric.SizeGB - [double]$oldMetric.SizeGB
+                if ($growthGB -le 0) { continue }
+                $ratePerDay = $growthGB / $deltaDays
+                if ($ratePerDay -le 0.01) { continue }
+                $maxGB = [double]$currentMetric.SizeGB / ([double]$currentMetric.PercentOfMax / 100)
+                $daysToFull = ($maxGB - [double]$currentMetric.SizeGB) / $ratePerDay
+                if ($daysToFull -gt 30) { continue }
+                $severity = 'Warning'
+                if ($daysToFull -le 7) { $severity = 'Critical' }
+                $label = [string]$currentMetric.UserName
+                if (-not $label) { $label = [string]$currentMetric.Disk }
+                $output.Add((New-FslFinding -Category ProfileStore -Check 'Capacity forecast' -Severity $severity -Target $label `
+                            -Message ("Container grows ~{0} GB/day; at the current rate it reaches its maximum in ~{1} day(s) (currently {2}% of {3} GB)." -f [math]::Round($ratePerDay, 2), [math]::Round($daysToFull), $currentMetric.PercentOfMax, [math]::Round($maxGB, 1)) `
+                            -Evidence ("Disk: {0}. Grew {1} GB over the last {2} day(s)." -f $currentMetric.Disk, [math]::Round($growthGB, 2), [math]::Round($deltaDays, 1)) `
+                            -Recommendation 'Free space inside the profile (Remove-FslOrphanedOst, OneDrive cache, temp data) or raise the VHDX maximum before sign-ins fail - and check what is growing (Outlook OST, Teams cache).'))
+            }
+        }
+    }
+
+    $metricRecords = @()
+    foreach ($metric in $StoreMetric) {
+        if (-not $metric.Disk) { continue }
+        $metricRecords += [pscustomobject]@{
+            Disk         = [string]$metric.Disk
+            UserName     = [string]$metric.UserName
+            SizeGB       = [double]$metric.SizeGB
+            PercentOfMax = [double]$metric.PercentOfMax
+        }
+    }
     $runRecord = [pscustomobject]@{
-        Scope     = $Scope
-        Timestamp = (Get-Date).ToString('o')
-        Findings  = $records
+        Scope        = $Scope
+        Timestamp    = (Get-Date).ToString('o')
+        Findings     = $records
+        StoreMetrics = $metricRecords
     }
     $fileName = 'run-{0}-{1}.json' -f $scopeHash, (Get-Date -Format 'yyyyMMdd-HHmmssfff')
     $runRecord | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $HistoryPath $fileName) -Encoding UTF8
+
+    # Built-in retention: rotate run files past the window (all scopes).
+    Get-ChildItem -LiteralPath $HistoryPath -Filter 'run-*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object LastWriteTime -lt (Get-Date).AddDays(-1 * $RetentionDays) |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 
     $output
 }

@@ -114,7 +114,7 @@ name) and `Get-FslSessionState` (translated per-session state).
   session host you still operate), optional integrations (ActiveDirectory
   module, SMB cmdlets) degrade gracefully. Reports are single HTML files with
   zero external assets.
-- **Tested like software, not like a script dump.** 196 Pester tests against
+- **Tested like software, not like a script dump.** 201 Pester tests against
   fixtures (no live environment needed in CI), PSScriptAnalyzer gate, CI matrix
   on Windows PowerShell 5.1 and PowerShell 7. Locale-independence is tested
   explicitly - the module behaves identically on German and English Windows.
@@ -133,9 +133,10 @@ name) and `Get-FslSessionState` (translated per-session state).
 
 - [x] On the [PowerShell Gallery](https://www.powershellgallery.com/packages/FSLogixDoctor) (since v1.2.0)
 - [x] `-Fix` companions (explicit, `-WhatIf`-first): `Remove-FslOrphanedOst` (v1.4.0), `Remove-FslOrphanedDisk` (v1.6.0)
-- [ ] Built-in retention for the run history (rotate old `run-*.json` files)
+- [x] Built-in retention for the run history (v1.9.0, `-HistoryRetentionDays`)
+- [x] Cross-correlate event 33 with the store scan - "VHDX resized but the partition inside was not extended" (v1.9.0)
+- [x] Capacity forecast from the run history - "container full in ~N days" (v1.9.0)
 - [ ] More context channels as the field demands them (SMB client, Winlogon)
-- [ ] Cross-correlate event 33 with the store scan ("VHDX resized but the partition inside was not extended")
 - [ ] `Get-FslProfileReport`: parallel scanning for multi-TB shares
 - [ ] Cloud Cache (CCD) health checks
 - [ ] More error codes - contribute the ones you have diagnosed!

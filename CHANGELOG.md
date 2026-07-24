@@ -6,6 +6,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-23
+
+### Added
+
+- **Capacity forecast**: store scans now persist per-container metrics into
+  the run history; with at least a day of history the diagnostic computes
+  growth rates and warns when a container will hit its maximum within ~30
+  days (Critical within 7) - 'grows ~2 GB/day; reaches its maximum in ~4
+  days'. The measurement baseline is the oldest retained run, so hourly
+  sensor runs never produce noise rates.
+- **Resize-incomplete correlation**: when event 33 reports a container
+  below 200 MB free but the store scan sees it far below 85% of its
+  maximum, a 'Resize incomplete' finding names the classic cause - the
+  VHDX was resized without extending the partition inside (field-validated
+  case).
+- **Accepted findings** (`-AcceptedFindingsPath`, default
+  `%ProgramData%\FSLogixDoctor\accepted.json`): deliberate, documented
+  deviations - entries with Check, optional Target wildcard, required
+  Reason and optional ExpiresOn - drop matching Critical/Warning findings
+  to Info with the reason attached. They stop driving the ExitCode without
+  vanishing from the report; expired acceptances re-alert automatically.
+- **Built-in history retention** (`-HistoryRetentionDays`, default 90):
+  run files past the window are rotated by the module itself - RMM
+  wrapper scripts no longer need their own cleanup.
+
 ## [1.8.0] - 2026-07-20
 
 ### Changed

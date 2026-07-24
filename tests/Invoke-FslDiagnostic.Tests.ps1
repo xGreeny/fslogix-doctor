@@ -37,11 +37,14 @@ Describe 'Invoke-FslDiagnostic' {
         Mock Resolve-FslProfileStorePath -ModuleName FSLogixDoctor { @() }
         $PSDefaultParameterValues['Invoke-FslDiagnostic:NoHistory'] = $true
         $PSDefaultParameterValues['Invoke-FslDiagnostic:NoReport'] = $true
+        # A real accepted.json on the test machine must never leak into tests.
+        $PSDefaultParameterValues['Invoke-FslDiagnostic:AcceptedFindingsPath'] = (Join-Path $TestDrive 'no-accepted.json')
     }
 
     AfterAll {
         $PSDefaultParameterValues.Remove('Invoke-FslDiagnostic:NoHistory')
         $PSDefaultParameterValues.Remove('Invoke-FslDiagnostic:NoReport')
+        $PSDefaultParameterValues.Remove('Invoke-FslDiagnostic:AcceptedFindingsPath')
     }
 
     It 'aggregates findings from every category' {
@@ -423,6 +426,80 @@ Describe 'Invoke-FslDiagnostic' {
             $quiet = @($findings | Where-Object { $_.Category -eq 'ContextEvents' -and $_.Severity -eq 'Pass' })
             $quiet.Count | Should -Be 1
             $quiet[0].Message | Should -Match 'surrounding Windows logs'
+        }
+    }
+
+    Context 'accepted findings' {
+
+        It 'downgrades an accepted finding to Info with the reason attached' {
+            $acceptedPath = Join-Path $TestDrive 'accepted.json'
+            @(@{ Check = 'Log errors (0x00000020)'; Target = '*'; Reason = 'known, storage migration planned Q3' }) |
+                ConvertTo-Json | Set-Content $acceptedPath
+            $findings = @(Invoke-FslDiagnostic -AcceptedFindingsPath $acceptedPath)
+            $logFinding = @($findings | Where-Object Check -eq 'Log errors (0x00000020)')
+            $logFinding[0].Severity | Should -Be 'Info'
+            $logFinding[0].Message | Should -Match 'Accepted: known, storage migration'
+            $logFinding[0].Accepted | Should -BeTrue
+        }
+
+        It 'ignores expired acceptances' {
+            $acceptedPath = Join-Path $TestDrive 'accepted-expired.json'
+            @(@{ Check = 'Log errors (0x00000020)'; Reason = 'was accepted once'; ExpiresOn = '2020-01-01' }) |
+                ConvertTo-Json | Set-Content $acceptedPath
+            $findings = @(Invoke-FslDiagnostic -AcceptedFindingsPath $acceptedPath)
+            @($findings | Where-Object Check -eq 'Log errors (0x00000020)')[0].Severity | Should -Be 'Critical'
+        }
+    }
+
+    Context 'capacity forecast and resize correlation' {
+
+        It 'forecasts when a container will hit its maximum' {
+            $historyDir = Join-Path $TestDrive 'forecast-history'
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ Folder = '\\fs\s\u_S-1'; Disk = '\\fs\s\u_S-1\Profile_u.VHDX'; UserName = 'u.ser'; SizeGB = 40.0; PercentOfMax = 78.0; LastModified = (Get-Date); DiskCount = 1; Anomaly = $null })
+            }
+            Invoke-FslDiagnostic -HistoryPath $historyDir -ProfileStorePath '\\fs\s' | Out-Null
+            # Age the baseline run by two days.
+            $runFile = Get-ChildItem $historyDir -Filter 'run-*.json' | Select-Object -First 1
+            $record = Get-Content $runFile.FullName -Raw | ConvertFrom-Json
+            $record.Timestamp = (Get-Date).AddDays(-2).ToString('o')
+            $record | ConvertTo-Json -Depth 4 | Set-Content $runFile.FullName
+
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ Folder = '\\fs\s\u_S-1'; Disk = '\\fs\s\u_S-1\Profile_u.VHDX'; UserName = 'u.ser'; SizeGB = 44.0; PercentOfMax = 86.0; LastModified = (Get-Date); DiskCount = 1; Anomaly = $null })
+            }
+            $findings = @(Invoke-FslDiagnostic -HistoryPath $historyDir -ProfileStorePath '\\fs\s')
+            $forecast = @($findings | Where-Object Check -eq 'Capacity forecast')
+            $forecast.Count | Should -Be 1
+            $forecast[0].Severity | Should -Be 'Critical'
+            $forecast[0].Target | Should -Be 'u.ser'
+            $forecast[0].Message | Should -Match 'GB/day'
+            $forecast[0].Message | Should -Match 'reaches its maximum in ~'
+        }
+
+        It 'flags an incomplete resize when event 33 disagrees with the store' {
+            Mock Get-FslEventSummary -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ ComputerName = 'HOST'; Channel = 'Microsoft-FSLogix-Apps/Admin'; EventId = 33; Count = 2; BenignCount = 0; Level = 'Warnung'; LevelValue = 3; CuratedSeverity = $null; Meaning = 'free space low'; Recommendation = 'resize'; FirstSeen = (Get-Date).AddHours(-2); LastSeen = Get-Date; SampleMessage = 'low'; TopMessages = @('2x The user vhd(x) (VHDPath: \\fs\s\u_S-1\Profile_u.VHDX) has less than 200 MB free space left'); AlertMessages = @('2x The user vhd(x) (VHDPath: \\fs\s\u_S-1\Profile_u.VHDX) has less than 200 MB free space left') })
+            }
+            Mock Get-FslProfileReport -ModuleName FSLogixDoctor {
+                @([pscustomobject]@{ Folder = '\\fs\s\u_S-1'; Disk = '\\fs\s\u_S-1\Profile_u.VHDX'; UserName = 'u.ser'; SizeGB = 48.9; PercentOfMax = 76.0; LastModified = (Get-Date); DiskCount = 1; Anomaly = $null })
+            }
+            $findings = @(Invoke-FslDiagnostic -ProfileStorePath '\\fs\s')
+            $resize = @($findings | Where-Object Check -eq 'Resize incomplete')
+            $resize.Count | Should -Be 1
+            $resize[0].Severity | Should -Be 'Warning'
+            $resize[0].Target | Should -Be 'u.ser'
+            $resize[0].Message | Should -Match 'without extending the partition'
+        }
+
+        It 'rotates history files past the retention window' {
+            $historyDir = Join-Path $TestDrive 'retention-history'
+            New-Item -ItemType Directory -Path $historyDir -Force | Out-Null
+            $oldFile = Join-Path $historyDir 'run-oldscope-20260101-000000000.json'
+            '{}' | Set-Content $oldFile
+            (Get-Item $oldFile).LastWriteTime = (Get-Date).AddDays(-120)
+            Invoke-FslDiagnostic -HistoryPath $historyDir -HistoryRetentionDays 90 | Out-Null
+            Test-Path $oldFile | Should -BeFalse
         }
     }
 

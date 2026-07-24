@@ -75,6 +75,15 @@ function Invoke-FslDiagnostic {
         Skip the automatic run history.
     .PARAMETER NoReport
         Skip the automatic HTML report.
+    .PARAMETER HistoryRetentionDays
+        Rotate run-history files older than this many days (default 90).
+    .PARAMETER AcceptedFindingsPath
+        JSON list of deliberate, documented deviations (default
+        %ProgramData%\FSLogixDoctor\accepted.json). Entries are objects with
+        Check (exact), optional Target (wildcard, default *), Reason (required)
+        and optional ExpiresOn. Matching Critical/Warning findings drop to Info
+        with the reason attached and stop driving the ExitCode - accepted, not
+        hidden.
     .EXAMPLE
         Invoke-FslDiagnostic
 
@@ -126,7 +135,12 @@ function Invoke-FslDiagnostic {
 
         [switch]$NoHistory,
 
-        [switch]$NoReport
+        [switch]$NoReport,
+
+        [ValidateRange(1, 3650)]
+        [int]$HistoryRetentionDays = 90,
+
+        [string]$AcceptedFindingsPath = (Join-Path $env:ProgramData 'FSLogixDoctor\accepted.json')
     )
 
     $findings = New-Object System.Collections.Generic.List[object]
@@ -195,15 +209,59 @@ function Invoke-FslDiagnostic {
     # mode), not per host. Explicit paths win; otherwise the store path is
     # auto-detected from VHDLocations (locally, or from the first reachable
     # fleet host) unless -NoProfileStore opts out.
+    $storeMetrics = @()
+    $storeParams = $null
     if ($IncludeProfileStore -or @($ProfileStorePath | Where-Object { $_ }).Count -gt 0) {
-        Write-Verbose 'Scanning the profile store...'
-        foreach ($storeFinding in @(Get-FslProfileStoreFinding -Path $ProfileStorePath)) { $findings.Add($storeFinding) }
+        $storeParams = @{ Path = $ProfileStorePath }
     }
     elseif (-not $NoProfileStore) {
         $autoStorePaths = @(Resolve-FslProfileStorePath -ComputerName $ComputerName)
         if ($autoStorePaths.Count -gt 0) {
             Write-Verbose ("Auto-detected profile store: {0}" -f ($autoStorePaths -join ', '))
-            foreach ($storeFinding in @(Get-FslProfileStoreFinding -Path $autoStorePaths -SkipUnreachable)) { $findings.Add($storeFinding) }
+            $storeParams = @{ Path = $autoStorePaths; SkipUnreachable = $true }
+        }
+    }
+    if ($storeParams) {
+        Write-Verbose 'Scanning the profile store...'
+        # Cross-check event 33 against the store: a container that FSLogix
+        # reports as nearly full but the store sees far from its maximum was
+        # resized without extending the partition inside.
+        $event33Paths = @()
+        foreach ($event33Finding in @($findings | Where-Object { $_.Check -eq 'Event 33' -and $_.Severity -in @('Critical', 'Warning') })) {
+            foreach ($pathMatch in [regex]::Matches([string]$event33Finding.Evidence, '(?i)VHDPath:\s*(?<path>\\\\[^|)]+?\.vhdx?)')) {
+                $event33Paths += $pathMatch.Groups['path'].Value.Trim()
+            }
+        }
+        if ($event33Paths.Count -gt 0) { $storeParams['CrossCheckPath'] = @($event33Paths | Select-Object -Unique) }
+
+        foreach ($storeItem in @(Get-FslProfileStoreFinding @storeParams)) {
+            if ($storeItem.PSObject.TypeNames -contains 'FSLogixDoctor.StoreMetric') {
+                $storeMetrics += @($storeItem.Disks)
+            }
+            else {
+                $findings.Add($storeItem)
+            }
+        }
+    }
+
+    # Accepted findings: deliberate, documented deviations drop to Info with
+    # the reason attached - they stop paging the monitoring without vanishing
+    # from the report.
+    $acceptedEntries = @(Get-FslAcceptedFinding -Path $AcceptedFindingsPath)
+    if ($acceptedEntries.Count -gt 0) {
+        foreach ($candidate in @($findings | Where-Object { $_.Severity -in @('Critical', 'Warning') })) {
+            foreach ($accepted in $acceptedEntries) {
+                if ([string]$candidate.Check -ne [string]$accepted.Check) { continue }
+                $targetPattern = [string]$accepted.Target
+                if (-not $targetPattern) { $targetPattern = '*' }
+                if ([string]$candidate.Target -notlike $targetPattern) { continue }
+                $candidate.Severity = 'Info'
+                $acceptedNote = (" (Accepted: {0}" -f $accepted.Reason)
+                if ($accepted.ExpiresOn) { $acceptedNote += (", until {0}" -f $accepted.ExpiresOn) }
+                $candidate.Message += ($acceptedNote + '.)')
+                Add-Member -InputObject $candidate -NotePropertyName Accepted -NotePropertyValue $true -Force
+                break
+            }
         }
     }
 
@@ -215,7 +273,7 @@ function Invoke-FslDiagnostic {
         $historyScope = $env:COMPUTERNAME
         if (@($ComputerName).Count -gt 0) { $historyScope = ((@($ComputerName) | Sort-Object) -join ',') }
         try {
-            $tracked = @(Update-FslRunHistory -Finding $findings.ToArray() -HistoryPath $HistoryPath -Scope $historyScope)
+            $tracked = @(Update-FslRunHistory -Finding $findings.ToArray() -HistoryPath $HistoryPath -Scope $historyScope -StoreMetric $storeMetrics -RetentionDays $HistoryRetentionDays)
             $findings = New-Object System.Collections.Generic.List[object]
             foreach ($trackedFinding in $tracked) { $findings.Add($trackedFinding) }
         }
